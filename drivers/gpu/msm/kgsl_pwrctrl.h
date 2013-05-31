@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,7 +45,6 @@ struct kgsl_pwrctrl {
 	struct kgsl_pwrlevel pwrlevels[KGSL_MAX_PWRLEVELS];
 	unsigned int active_pwrlevel;
 	int thermal_pwrlevel;
-	unsigned int default_pwrlevel;
 	unsigned int num_pwrlevels;
 	unsigned int interval_timeout;
 	struct regulator *gpu_reg;
