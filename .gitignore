@@ -9,6 +9,7 @@
 #
 # Normal rules
 #
+.gitignore
 .config
 .config.old
 .version
@@ -32,6 +33,7 @@
 *.patch
 *.rej
 *.diff
+*.img
 
 #
 # Top-level generic files
@@ -46,7 +48,7 @@ Module.symvers
 !.mailmap
 arch/arm/boot/compressed/ashldi3.S
 arch/arm/boot/compressed/piggy.xzkern
-
+zImage
 #
 # Generated include files
 #
