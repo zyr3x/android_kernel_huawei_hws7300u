@@ -358,14 +358,14 @@ static int l2_freq_tbl_size;
 			{\
 				.src = MSM_BUS_MASTER_AMPSS_M0, \
 				.dst = MSM_BUS_SLAVE_EBI_CH0, \
-				.ib = (_bw) * 1000000ULL, \
-				.ab = (_bw) *  100000ULL, \
+				.ib = (_bw) * 1000000UL, \
+				.ab = (_bw) *  100000UL, \
 			}, \
 			{ \
 				.src = MSM_BUS_MASTER_AMPSS_M1, \
 				.dst = MSM_BUS_SLAVE_EBI_CH0, \
-				.ib = (_bw) * 1000000ULL, \
-				.ab = (_bw) *  100000ULL, \
+				.ib = (_bw) * 1000000UL, \
+				.ab = (_bw) *  100000UL, \
 			}, \
 		}, \
 		.num_paths = 2, \
