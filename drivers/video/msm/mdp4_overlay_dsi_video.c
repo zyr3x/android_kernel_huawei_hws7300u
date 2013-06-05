@@ -583,7 +583,7 @@ int mdp4_dsi_video_on(struct platform_device *pdev)
 	mdp4_overlay_mdp_pipe_req(pipe, mfd);
 
 	atomic_set(&vctrl->suspend, 0);
-
+        mdp4_calc_blt_mdp_bw(mfd, pipe);
 	mdp4_overlay_dmap_xy(pipe);	/* dma_p */
 	mdp4_overlay_dmap_cfg(mfd, 1);
 	mdp4_overlay_rgb_setup(pipe);
