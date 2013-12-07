@@ -57,9 +57,9 @@
 /* zhouhenglin add for Firmware upgrade 20110117 begine */
 #define BSP_UPGRADE_FIRMWARE_BQFS_CMD       "upgradebqfs"
 #define BSP_UPGRADE_FIRMWARE_DFFS_CMD       "upgradedffs"
-/*库仑计的完整的firmware，包含可执行镜像及数据*/
+
 #define BSP_UPGRADE_FIRMWARE_BQFS_NAME      "/system/etc/coulometer/bq27510_pro.bqfs"
-/*库仑计的的数据信息*/
+
 #define BSP_UPGRADE_FIRMWARE_DFFS_NAME      "/system/etc/coulometer/bq27510_pro.dffs"
 #define BSP_ROM_MODE_I2C_ADDR               0x0B
 #define BSP_NORMAL_MODE_I2C_ADDR            0x55
@@ -280,6 +280,8 @@ int get_full_charge_capacity(struct bq275x0_device_info *di)
 int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 {
 	int data=0;
+	int vol=0;
+	
 //	int data2 = 0;
 
 	if(BSP_FIRMWARE_DOWNLOAD_MODE == gBq275x0DownloadFirmwareFlag)
@@ -293,12 +295,18 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 #endif
 
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_SOC);
-
+	vol  = bq275x0_battery_voltage(di);
+	
 	BQ275x0_DBG("read soc result = %d Hundred Percents\n",data);
 
-
-
-    return data;
+	if( data < 10 && vol > 3450 ) 
+	{
+		printk(KERN_ERR "battery hack real vol = %d mV \n",vol);
+		printk(KERN_ERR "battery hack real capacity = %d \n",data);
+		return 10;
+	}	
+	
+	return data;
 
 }
 
