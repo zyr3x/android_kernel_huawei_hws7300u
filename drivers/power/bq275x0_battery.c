@@ -102,7 +102,6 @@ struct i2c_client* g_battery_measure_by_bq275x0_i2c_client = NULL;
 
 /* zhouhenglin add for Firmware upgrade 20110117 begine */
 static struct i2c_driver bq275x0_battery_driver;
-/*在固件下载器件不允许Bq275x0其他类型的I2C操作*/
 static unsigned int gBq275x0DownloadFirmwareFlag = BSP_NORMAL_MODE;
 /* zhouhenglin add for Firmware upgrade 20110117 end */
 
@@ -281,8 +280,8 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 {
 	int data=0;
 	int vol=0;
-	
-//	int data2 = 0;
+	int data2=0;
+	int curr_now=0;
 
 	if(BSP_FIRMWARE_DOWNLOAD_MODE == gBq275x0DownloadFirmwareFlag)
 	{
@@ -294,18 +293,22 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
         get_full_charge_capacity(di);
 #endif
 
+
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_SOC);
 	vol  = bq275x0_battery_voltage(di);
-	
+	data2 = (vol - 3400)*100 / ( 4200 - 3400);
+	curr_now = bq275x0_battery_current(di);
+
+	printk(KERN_WARNING "BATT: vol = %d mV; capacity_by_vol = %d ; capacity = %d ; curr_now = %d \n", vol, data2, data, curr_now );
+
 	BQ275x0_DBG("read soc result = %d Hundred Percents\n",data);
 
-	if( data < 10 && vol > 3450 ) 
+	if( data < 15 && vol > 3450 && curr_now < 0 )
 	{
-		printk(KERN_ERR "battery hack real vol = %d mV \n",vol);
-		printk(KERN_ERR "battery hack real capacity = %d \n",data);
-		return 10;
-	}	
-	
+		data2 = ( data2 > 30 ) ? 30 : data2;
+		return data2;
+	}
+
 	return data;
 
 }
