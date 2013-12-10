@@ -83,6 +83,10 @@
 #define BQ275x0_FAT(format,arg...)	  do { (void)(format); } while (0)
 #endif
 
+int bq275x0_ext_atoi(const char* s);
+int bq275x0_get_min_volt(void);
+int bq275x0_get_min_capacity(void);
+
 extern void cancel_update_battery_status(void);
 extern void update_battery_status_now(void);
 extern void set_max8903_cen(int flag);
@@ -279,10 +283,12 @@ int get_full_charge_capacity(struct bq275x0_device_info *di)
 int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 {
 	int data=0;
+	int min_data=0;
 	int vol=0;
 	int data2=0;
 	int curr_now=0;
-
+	int min_vol=0;
+	
 	if(BSP_FIRMWARE_DOWNLOAD_MODE == gBq275x0DownloadFirmwareFlag)
 	{
 		return 30;
@@ -296,14 +302,25 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_SOC);
 	vol  = bq275x0_battery_voltage(di);
+	
+	min_data = bq275x0_get_min_capacity();
+	min_vol = bq275x0_get_min_volt();
+	min_vol = (min_vol < 3300) ? 3300 : min_vol;
+	
 	data2 = (vol - 3400)*100 / ( 4200 - 3400);
 	curr_now = bq275x0_battery_current(di);
 
-	printk(KERN_WARNING "BATT: vol = %d mV; capacity_by_vol = %d ; capacity = %d ; curr_now = %d \n", vol, data2, data, curr_now );
+	printk(KERN_WARNING "BATT: vol = %d mV; capacity_by_vol = %d ; capacity = %d ; curr_now = %d ; min vol = %d mV ; min capacity = %d \n", vol, 
+		data2, 
+		data, 
+		curr_now, 
+		min_vol, 
+		min_data);
 
 	BQ275x0_DBG("read soc result = %d Hundred Percents\n",data);
 
-	if( data < 15 && vol > 3450 && curr_now < 0 )
+	
+	if( data < min_data && vol > min_vol && curr_now < 0 )
 	{
 		data2 = ( data2 > 30 ) ? 30 : data2;
 		return data2;
@@ -311,6 +328,163 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 
 	return data;
 
+}
+
+int bq275x0_get_min_capacity() 
+{
+    char *buf;
+    struct file *filp;
+    struct inode *inode = NULL;
+    mm_segment_t oldfs;
+    unsigned int length;
+    int k = 0;
+    int ret = 0;
+    int def_ret = 15;
+    
+    /* open file */
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+    filp = filp_open( "/system/etc/coulometer/bq27510_min_capacity", O_RDONLY, S_IRUSR);
+    if (IS_ERR(filp)) 
+    {
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    if (!filp->f_op) 
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    inode = filp->f_path.dentry->d_inode;
+    if (!inode) 
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* file's size */
+    length = i_size_read(inode->i_mapping->host);
+    if (!( length > 0 && length < BSP_FIRMWARE_FILE_SIZE))
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* allocation buff size */
+    buf = vmalloc(length+(length%2));       /* buf size if even */
+    if (!buf) 
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* read data */
+    if (filp->f_op->read(filp, buf, length, &filp->f_pos) != length) 
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        vfree(buf);
+        return def_ret;
+    }
+
+    ret = bq275x0_ext_atoi((const char *)buf);
+       
+    filp_close(filp, NULL);
+    set_fs(oldfs);
+    vfree(buf);
+    
+    return ret;
+}
+
+
+int bq275x0_get_min_volt() 
+{
+    char *buf;
+    struct file *filp;
+    struct inode *inode = NULL;
+    mm_segment_t oldfs;
+    unsigned int length;
+    int k = 0;
+    int ret = 0;
+    int def_ret = 3450;
+    
+    /* open file */
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+    filp = filp_open( "/system/etc/coulometer/bq27510_min_volt", O_RDONLY, S_IRUSR);
+    if (IS_ERR(filp)) 
+    {
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    if (!filp->f_op) 
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    inode = filp->f_path.dentry->d_inode;
+    if (!inode) 
+    {     
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* file's size */
+    length = i_size_read(inode->i_mapping->host);
+    if (!( length > 0 && length < BSP_FIRMWARE_FILE_SIZE))
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* allocation buff size */
+    buf = vmalloc(length+(length%2));       /* buf size if even */
+    if (!buf) 
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* read data */
+    if (filp->f_op->read(filp, buf, length, &filp->f_pos) != length) 
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        vfree(buf);
+        return def_ret;
+    }
+
+    ret = bq275x0_ext_atoi((const char *)buf);
+       
+    filp_close(filp, NULL);
+    set_fs(oldfs);
+    vfree(buf);
+    
+    return ret;
+}
+
+int bq275x0_ext_atoi(const char *s)
+{
+	int k = 0;
+
+	k = 0;
+	while (*s != '\0' && *s >= '0' && *s <= '9') {
+		k = 10 * k + (*s - '0');
+		s++;
+	}
+	return k;
 }
 
 /*
