@@ -302,12 +302,13 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_SOC);
 	vol  = bq275x0_battery_voltage(di);
-	
+
 	min_data = bq275x0_get_min_capacity();
 	min_vol = bq275x0_get_min_volt();
-	min_vol = (min_vol < 3300) ? 3300 : min_vol;
-	
-	data2 = (vol - 3400)*100 / ( 4200 - 3400);
+
+	data2 = (vol - min_vol)*100 / ( 4200 - min_vol);
+	data2 = (data > data2) ? data : data2;
+
 	curr_now = bq275x0_battery_current(di);
 
 	printk(KERN_WARNING "BATT: vol = %d mV; capacity_by_vol = %d ; capacity = %d ; curr_now = %d ; min vol = %d mV ; min capacity = %d \n", vol, 
@@ -322,7 +323,7 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 	
 	if( data < min_data && vol > min_vol && curr_now < 0 )
 	{
-		data2 = ( data2 > 30 ) ? 30 : data2;
+		data2 = ( data2 > min_data ) ? min_data : data2;
 		return data2;
 	}
 
@@ -339,7 +340,7 @@ int bq275x0_get_min_capacity()
     unsigned int length;
     int k = 0;
     int ret = 0;
-    int def_ret = 15;
+    int def_ret = -1;
     
     /* open file */
     oldfs = get_fs();
