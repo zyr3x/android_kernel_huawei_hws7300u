@@ -324,6 +324,7 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 	if( data < min_data && vol > min_vol && curr_now < 0 )
 	{
 		data2 = ( data2 > min_data ) ? min_data : data2;
+		data2 = ( data2 < 5 ) ? 10 : data2;
 		return data2;
 	}
 
