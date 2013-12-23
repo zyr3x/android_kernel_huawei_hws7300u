@@ -3294,6 +3294,25 @@ static int msmfb_handle_metadata_ioctl(struct msm_fb_data_type *mfd,
 	}
 	return ret;
 }
+
+static int msmfb_get_metadata(struct msm_fb_data_type *mfd,
+
+        struct msmfb_metadata *metadata_ptr)
+{
+  int ret = 0;
+  switch (metadata_ptr->op) {
+  case metadata_op_frame_rate:
+    metadata_ptr->data.panel_frame_rate =
+      mdp_get_panel_framerate(mfd);
+    break;
+  default:
+    pr_warn("Unsupported request to MDP META IOCTL.\n");
+    ret = -EINVAL;
+    break;
+  }
+  return ret;
+}
+
 static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 			unsigned long arg)
 {
@@ -3312,7 +3331,7 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	struct mdp_page_protection fb_page_protection;
 	struct msmfb_mdp_pp mdp_pp;
 	struct msmfb_metadata mdp_metadata;
-	int ret = 0;
+        int ret = 0;
 
 	switch (cmd) {
 #ifdef CONFIG_FB_MSM_OVERLAY
@@ -3605,7 +3624,17 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = msmfb_handle_metadata_ioctl(mfd, &mdp_metadata);
 		break;
 
-	default:
+        case MSMFB_METADATA_GET:
+                ret = copy_from_user(&mdp_metadata, argp, sizeof(mdp_metadata));
+                if (ret)
+                       return ret;
+                ret = msmfb_get_metadata(mfd, &mdp_metadata);
+                if (!ret)
+                ret = copy_to_user(argp, &mdp_metadata,
+                sizeof(mdp_metadata));
+                break;
+
+        default:
 		MSM_FB_INFO("MDP: unknown ioctl (cmd=%x) received!\n", cmd);
 		ret = -EINVAL;
 		break;
