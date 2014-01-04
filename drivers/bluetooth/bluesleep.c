@@ -61,7 +61,7 @@
 #include "hci_uart.h"
 
 #define BT_SLEEP_DBG
-#ifndef BT_SLEEP_DBGadb l
+#ifndef BT_SLEEP_DBG
 #define BT_DBG(fmt, arg...)
 #endif
 /*
