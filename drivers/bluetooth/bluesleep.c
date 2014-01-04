@@ -525,7 +525,6 @@ void bluesleep_setup_uart_port(struct platform_device *uart_dev)
 	bluesleep_uart_dev = uart_dev;
 }
 
-
 /**
  * Read the <code>BT_WAKE</code> GPIO pin value via the proc interface.
  * When this function returns, <code>page</code> will contain a 1 if the
