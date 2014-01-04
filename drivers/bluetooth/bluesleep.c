@@ -61,7 +61,7 @@
 #include "hci_uart.h"
 
 #define BT_SLEEP_DBG
-#ifndef BT_SLEEP_DBG
+#ifndef BT_SLEEP_DBGadb l
 #define BT_DBG(fmt, arg...)
 #endif
 /*
@@ -275,6 +275,107 @@ static void bluesleep_outgoing_data(void)
 	spin_unlock_irqrestore(&rw_lock, irq_flags);
 }
 
+/**
+ * Schedules a tasklet to run when receiving an interrupt on the
+ * <code>HOST_WAKE</code> GPIO pin.
+ * @param irq Not used.
+ * @param dev_id Not used.
+ */
+static irqreturn_t bluesleep_hostwake_isr(int irq, void *dev_id)
+{
+	/* schedule a tasklet to handle the change in the host wake line */
+	tasklet_schedule(&hostwake_task);
+	return IRQ_HANDLED;
+}
+
+/**
+ * Starts the Sleep-Mode Protocol on the Host.
+ * @return On success, 0. On error, -1, and <code>errno</code> is set
+ * appropriately.
+ */
+static int bluesleep_start(void)
+{
+	int retval;
+	unsigned long irq_flags;
+
+	spin_lock_irqsave(&rw_lock, irq_flags);
+
+	if (test_bit(BT_PROTO, &flags)) {
+		spin_unlock_irqrestore(&rw_lock, irq_flags);
+		return 0;
+	}
+
+	spin_unlock_irqrestore(&rw_lock, irq_flags);
+
+	if (!atomic_dec_and_test(&open_count)) {
+		atomic_inc(&open_count);
+		return -EBUSY;
+	}
+
+	/* start the timer */
+
+	mod_timer(&tx_timer, jiffies + (TX_TIMER_INTERVAL*HZ));
+
+	/* assert BT_WAKE */
+	gpio_set_value(bsi->ext_wake, 0);
+	
+	retval = request_irq(bsi->host_wake_irq, bluesleep_hostwake_isr,
+				IRQF_DISABLED | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
+				"bluetooth hostwake", NULL);
+
+	if (retval  < 0) {
+		BT_ERR("Couldn't acquire BT_HOST_WAKE IRQ");
+		goto fail;
+	}
+
+	retval = enable_irq_wake(bsi->host_wake_irq);
+	if (retval < 0) {
+		BT_ERR("Couldn't enable BT_HOST_WAKE as wakeup interrupt");
+		free_irq(bsi->host_wake_irq, NULL);
+		goto fail;
+	}
+
+	set_bit(BT_PROTO, &flags);
+	return 0;
+fail:
+	del_timer(&tx_timer);
+	atomic_inc(&open_count);
+
+	return retval;
+}
+
+/**
+ * Stops the Sleep-Mode Protocol on the Host.
+ */
+static void bluesleep_stop(void)
+{
+	unsigned long irq_flags;
+
+	spin_lock_irqsave(&rw_lock, irq_flags);
+
+	if (!test_bit(BT_PROTO, &flags)) {
+		spin_unlock_irqrestore(&rw_lock, irq_flags);
+		return;
+	}
+
+	/* assert BT_WAKE */
+	gpio_set_value(bsi->ext_wake, 0);
+	del_timer(&tx_timer);
+	clear_bit(BT_PROTO, &flags);
+
+	if (test_bit(BT_ASLEEP, &flags)) {
+		clear_bit(BT_ASLEEP, &flags);
+		hsuart_power(1);
+	}
+
+	atomic_inc(&open_count);
+
+	spin_unlock_irqrestore(&rw_lock, irq_flags);
+	if (disable_irq_wake(bsi->host_wake_irq))
+		BT_ERR("Couldn't disable hostwake IRQ wakeup mode\n");
+	free_irq(bsi->host_wake_irq, NULL);
+}
+
 #if BT_BLUEDROID_SUPPORT
 static struct uart_port *bluesleep_get_uart_port(void)
 {
@@ -424,106 +525,7 @@ void bluesleep_setup_uart_port(struct platform_device *uart_dev)
 	bluesleep_uart_dev = uart_dev;
 }
 
-/**
- * Schedules a tasklet to run when receiving an interrupt on the
- * <code>HOST_WAKE</code> GPIO pin.
- * @param irq Not used.
- * @param dev_id Not used.
- */
-static irqreturn_t bluesleep_hostwake_isr(int irq, void *dev_id)
-{
-	/* schedule a tasklet to handle the change in the host wake line */
-	tasklet_schedule(&hostwake_task);
-	return IRQ_HANDLED;
-}
 
-/**
- * Starts the Sleep-Mode Protocol on the Host.
- * @return On success, 0. On error, -1, and <code>errno</code> is set
- * appropriately.
- */
-static int bluesleep_start(void)
-{
-	int retval;
-	unsigned long irq_flags;
-
-	spin_lock_irqsave(&rw_lock, irq_flags);
-
-	if (test_bit(BT_PROTO, &flags)) {
-		spin_unlock_irqrestore(&rw_lock, irq_flags);
-		return 0;
-	}
-
-	spin_unlock_irqrestore(&rw_lock, irq_flags);
-
-	if (!atomic_dec_and_test(&open_count)) {
-		atomic_inc(&open_count);
-		return -EBUSY;
-	}
-
-	/* start the timer */
-
-	mod_timer(&tx_timer, jiffies + (TX_TIMER_INTERVAL*HZ));
-
-	/* assert BT_WAKE */
-	gpio_set_value(bsi->ext_wake, 0);
-	
-	retval = request_irq(bsi->host_wake_irq, bluesleep_hostwake_isr,
-				IRQF_DISABLED | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
-				"bluetooth hostwake", NULL);
-
-	if (retval  < 0) {
-		BT_ERR("Couldn't acquire BT_HOST_WAKE IRQ");
-		goto fail;
-	}
-
-	retval = enable_irq_wake(bsi->host_wake_irq);
-	if (retval < 0) {
-		BT_ERR("Couldn't enable BT_HOST_WAKE as wakeup interrupt");
-		free_irq(bsi->host_wake_irq, NULL);
-		goto fail;
-	}
-
-	set_bit(BT_PROTO, &flags);
-	return 0;
-fail:
-	del_timer(&tx_timer);
-	atomic_inc(&open_count);
-
-	return retval;
-}
-
-/**
- * Stops the Sleep-Mode Protocol on the Host.
- */
-static void bluesleep_stop(void)
-{
-	unsigned long irq_flags;
-
-	spin_lock_irqsave(&rw_lock, irq_flags);
-
-	if (!test_bit(BT_PROTO, &flags)) {
-		spin_unlock_irqrestore(&rw_lock, irq_flags);
-		return;
-	}
-
-	/* assert BT_WAKE */
-	gpio_set_value(bsi->ext_wake, 0);
-	del_timer(&tx_timer);
-	clear_bit(BT_PROTO, &flags);
-
-	if (test_bit(BT_ASLEEP, &flags)) {
-		clear_bit(BT_ASLEEP, &flags);
-		hsuart_power(1);
-	}
-
-	atomic_inc(&open_count);
-
-	spin_unlock_irqrestore(&rw_lock, irq_flags);
-	if (disable_irq_wake(bsi->host_wake_irq))
-		BT_ERR("Couldn't disable hostwake IRQ wakeup mode\n");
-	free_irq(bsi->host_wake_irq, NULL);
-}
 /**
  * Read the <code>BT_WAKE</code> GPIO pin value via the proc interface.
  * When this function returns, <code>page</code> will contain a 1 if the
