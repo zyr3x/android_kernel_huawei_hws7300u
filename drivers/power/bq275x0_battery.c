@@ -299,7 +299,6 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
         get_full_charge_capacity(di);
 #endif
 
-
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_SOC);
 	vol  = bq275x0_battery_voltage(di);
 
@@ -308,23 +307,14 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 
 	data2 = (vol - min_vol)*100 / ( 4200 - min_vol);
 	data2 = (data > data2) ? data : data2;
+	data2 = (data2 > min_data) ? min_data : data2;
 
 	curr_now = bq275x0_battery_current(di);
 
-	printk(KERN_WARNING "BATT: vol = %d mV; capacity_by_vol = %d ; capacity = %d ; curr_now = %d ; min vol = %d mV ; min capacity = %d \n", vol, 
-		data2, 
-		data, 
-		curr_now, 
-		min_vol, 
-		min_data);
-
 	BQ275x0_DBG("read soc result = %d Hundred Percents\n",data);
 
-	
-	if( data < min_data && vol > min_vol && curr_now < 0 )
+	if( data < min_data && vol > min_vol && curr_now < 100 )
 	{
-		data2 = ( data2 > min_data ) ? min_data : data2;
-		data2 = ( data2 < 5 ) ? 10 : data2;
 		return data2;
 	}
 
@@ -706,7 +696,7 @@ bq275x0_firmware_program_begin:
         memset(p_dst, 0x00, sizeof(p_dst));
         memset(pBuf, 0x00, sizeof(pBuf));
 
-        /*获取一行数据，去除空格*/
+        /*\BB\F1取一\D0\D0\CA\FD\BE荩\AC去\B3\FD\BF崭\F1*/
         while(i < BSP_MAX_ASC_PER_LINE)
         {
             temp = *p_cur++;      

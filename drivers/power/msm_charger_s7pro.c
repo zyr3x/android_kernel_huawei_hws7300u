@@ -133,13 +133,13 @@ static struct bq275x0_device_info di;
 static struct platform_driver msm_charger_driver;
 
 
-#define MAX_UP_POINT		4
-#define MAX_DOWN_POINT	4
+#define MAX_UP_POINT		1
+#define MAX_DOWN_POINT	2
 static int old_battery_capacity = -1;
 static int old_charging = 0;
 static int charging = 0;
 #define SMOOTH_ADJUST	1
-#define MAX_SMOOTH_STEP	4
+#define MAX_SMOOTH_STEP	2
 static int smooth_step = 0;
 
 static int smooth_capacity(int new_cap)
@@ -152,6 +152,25 @@ static int smooth_capacity(int new_cap)
 	}
 
 	if (charging == 0) {
+		if (new_cap > 90 && new_cap <= 99)
+		new_cap++;
+		else if (new_cap > 80 && new_cap <= 90)
+		new_cap += 2;
+		else if (new_cap > 70 && new_cap <= 80)
+		new_cap += 3;
+		else if (new_cap > 60 && new_cap <= 70)
+		new_cap += 4;
+		else if (new_cap > 50 && new_cap <= 60)
+		new_cap += 5;
+		else if (new_cap > 40 && new_cap <= 50)
+		new_cap += 6;
+		else if (new_cap > 30 && new_cap <= 40)
+		new_cap += 7;
+		else if (new_cap > 20 && new_cap <= 30)
+		new_cap += 8;
+		else if (new_cap > 10 && new_cap <= 20)
+		new_cap += 9;
+
 		if ((0 == smooth_step)&&(9 == new_cap%10)&&(90 > new_cap)) {
 			smooth_step = 1;
 		}
