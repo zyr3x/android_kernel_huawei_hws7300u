@@ -43,7 +43,7 @@
 
 #include <linux/jiffies.h>
 
-#define MSM_CHG_MAX_EVENTS		16
+#define MSM_CHG_MAX_EVENTS 16
 
 #define MAX8903_CEN_N 131
 #define USB_CHARGING_CTRL 145
@@ -102,13 +102,13 @@ struct msm_charger_mux {
 	struct mutex status_lock;
 	enum msm_battery_status batt_status;
 
-//    
+//
 //	int usb_charging_en;
 //	int usb_charging_control;
-//    
+//
 	u32 start_charging_jiffies;
 
-	int (*setup_charging_gpio_status)(int flag, unsigned gpio_num, int status);	
+	int (*setup_charging_gpio_status)(int flag, unsigned gpio_num, int status);
 	struct msm_charger_event *queue;
 	int tail;
 	int head;
@@ -118,10 +118,10 @@ struct msm_charger_mux {
 	struct workqueue_struct *event_wq_thread;
 
 	int  batt_present;
-	int  batt_vol;	
+	int  batt_vol;
 	int  batt_cur;
 	int  batt_cap;
-	int  batt_temp;	
+	int  batt_temp;
 	int  batt_tte;
 };
 
@@ -132,127 +132,95 @@ static struct bq275x0_device_info di;
 
 static struct platform_driver msm_charger_driver;
 
-
-#define MAX_UP_POINT		1
-#define MAX_DOWN_POINT	2
 static int old_battery_capacity = -1;
 static int old_charging = 0;
 static int charging = 0;
-#define SMOOTH_ADJUST	1
-#define MAX_SMOOTH_STEP	2
-static int smooth_step = 0;
+static int realzero = 0;
+static int corrector = 0;
+#define LOW_VOLTAGE 3200
 
 static int smooth_capacity(int new_cap)
 {
+
 	int difference;
 	int result = 0;
 
-	if ((10 > new_cap)&&(2 <= new_cap)) {
-		new_cap = 2;
-	}
-
 	if (charging == 0) {
-		if (new_cap > 90 && new_cap <= 99)
-		new_cap++;
-		else if (new_cap > 80 && new_cap <= 90)
-		new_cap += 2;
-		else if (new_cap > 70 && new_cap <= 80)
-		new_cap += 3;
-		else if (new_cap > 60 && new_cap <= 70)
-		new_cap += 4;
-		else if (new_cap > 50 && new_cap <= 60)
-		new_cap += 5;
-		else if (new_cap > 40 && new_cap <= 50)
-		new_cap += 6;
-		else if (new_cap > 30 && new_cap <= 40)
-		new_cap += 7;
-		else if (new_cap > 20 && new_cap <= 30)
-		new_cap += 8;
-		else if (new_cap > 10 && new_cap <= 20)
-		new_cap += 9;
-
-		if ((0 == smooth_step)&&(9 == new_cap%10)&&(90 > new_cap)) {
-			smooth_step = 1;
-		}
-	} else {
-		if ((0 == smooth_step)&&(0 == new_cap%10)&&(91 > new_cap)) {
-			smooth_step = 1;
+		if (new_cap > 80 && new_cap <= 99)
+			new_cap += 1;
+		else if (new_cap > 60 && new_cap <= 80)
+			new_cap += 2;
+		else if (new_cap > 40 && new_cap <= 60)
+			new_cap += 3;
+		else if (new_cap > 20 && new_cap <= 40)
+			new_cap += 4;
+		else if (new_cap > 0 && new_cap <= 20)
+			new_cap += 5;
+		else if (new_cap == 0) {
+			new_cap = (msm_chg.batt_vol - LOW_VOLTAGE) / 33;
+			if (new_cap < 0) new_cap = 0;
 		}
 	}
-		
-	if ((20 > new_cap)&&(10 <= new_cap)) {
-		new_cap = new_cap - (9 - 20/10);
-	}
-
-	if ((90 > new_cap)&&(20 <= new_cap)) { 
-		new_cap = new_cap - (9 - new_cap/10);
-	}
-	
-	//pr_err("old_battery_capacity %d \n smooth_step %d  middle_num is %d\n",old_battery_capacity,smooth_step,new_cap);
 
 	if (-1 == old_battery_capacity) {
 		old_battery_capacity = new_cap;
 	}
-		
-	if (charging == 0) {		//NO_charging
+
+	if (charging == 0) {		//no_charging
 		difference = old_battery_capacity - new_cap;
+
 		if (0 > difference) {
+			corrector = 0;
 			return old_battery_capacity;
 		}
 
-		if (0 != smooth_step) {
-			if (0 != difference) {
-				result = old_battery_capacity - SMOOTH_ADJUST;
-				old_battery_capacity = result;
-			}
+		if (difference == corrector) {
 			return old_battery_capacity;
+		} else {
+			corrector = 0;
 		}
-		
-		if (MAX_DOWN_POINT <= difference) {
-			result = old_battery_capacity - MAX_DOWN_POINT;
+
+		if (1 < difference) {
+			corrector = difference - 1;
+		}
+
+		if (0 != difference) {
+			result = old_battery_capacity - 1;
 			old_battery_capacity = result;
-			return result;
 		}
+		return old_battery_capacity;
+
 	} else {		//charging
 		difference = new_cap - old_battery_capacity;
 		if (0 > difference) {
 			return old_battery_capacity;
 		}
-		
-		if (0 != smooth_step) {
-			if (0 != difference) {
-				result = old_battery_capacity + SMOOTH_ADJUST;
-				old_battery_capacity = result;
-			}
-			return old_battery_capacity;
-		}
 
-		if (MAX_UP_POINT <= difference) {
-			result = old_battery_capacity + MAX_DOWN_POINT;
-			old_battery_capacity = result;
-			return result;
+		if (0 != difference) {
+			old_battery_capacity = new_cap;
 		}
+		return old_battery_capacity;
 	}
-	
+
 	return new_cap;
 }
 
 
 static void sort_data(int* data, int len)
-{  
+{
 	int i = 0;
 	int j = 0;
-	int temp =0;  
+	int temp =0;
 
-	for (i = 0; i < len; i++) {  
-		for (j = i+1; j < len; j++) {  
-			if(data[i]>data[j]){  
-				temp = data[j];  
-				data[j] = data[i];  
-				data[i] = temp;  
-			}  
-		}  
-	}  
+	for (i = 0; i < len; i++) {
+		for (j = i+1; j < len; j++) {
+			if(data[i]>data[j]){
+				temp = data[j];
+				data[j] = data[i];
+				data[i] = temp;
+			}
+		}
+	}
 }
 
 void get_batt_status(void) 
@@ -264,33 +232,29 @@ void get_batt_status(void)
 
 	for(loop = 0; loop < 5; loop++) {
 		cap[loop] = bq275x0_battery_capacity(&di);
-		//pr_err("WXX_DEBUG cap[%d] = %d\n", loop, cap[loop]);
 		msleep(10);
 	}
 	sort_data(cap, 5);
 
 	value = bq275x0_battery_voltage(&di);
-	if(value >= 0)
+	if (value >= 0)
 		msm_chg.batt_vol = value;
+	if (msm_chg.batt_vol < LOW_VOLTAGE)
+		realzero = 1;
 
 	value = bq275x0_battery_current(&di);
-//	if(value >= 0)		
 	msm_chg.batt_cur = value;
 	old_charging = charging;
-	if(0 > smooth_step){
-		smooth_step = 0;
+
+	if (0 > value) { //no_charging
+		charging = 0;
 	}
-	if(0 > value){ //No_charging
-	charging = 0;
+	else {		//charging
+		charging = 1;
+		realzero = 0;
+		corrector = 0;
 	}
-	else{		//charging
-	charging = 1;
-	}
-	
-	if(0 == smooth_step){
-		if(old_charging != charging)
-			smooth_step = MAX_SMOOTH_STEP;
-	}
+
 	value = bq275x0_battery_temperature(&di);
 	if(value >= 0)
 		msm_chg.batt_temp = value;
@@ -298,12 +262,16 @@ void get_batt_status(void)
 	value = cap[2];
 	if (value >= 0) {
 		tmp = value;
-		
+
 		old_battery_capacity = smooth_capacity(value);
-		if(0 != smooth_step){
-			smooth_step--;
+
+		if (charging == 0) {
+			if ((old_battery_capacity == 0) && (msm_chg.batt_vol > LOW_VOLTAGE) && (realzero == 0))
+				old_battery_capacity++;
+
+			if (realzero == 1)
+				old_battery_capacity = 0;
 		}
-		//pr_err("smooth_capacity ver 2.2 charging is %d  new_cap is %d  modified_cap is %d\n",charging,tmp,old_battery_capacity);
 		msm_chg.batt_cap = old_battery_capacity;
 	}
 
@@ -330,15 +298,15 @@ static int is_battery_temp_within_range(void)
 
 static int is_battery_charging_full(void)
 {
-	return (msm_chg.batt_cap == 100);
+	return (msm_chg.batt_cap == 100 && msm_chg.batt_cur == 0);
 }
 
 /*check whether the capacity is low to charge */
-#define BATT_CHARGING_LEVEL 99	
+#define BATT_CHARGING_LEVEL 99
 static int is_battery_capacity_lower_setting(void)
 {
 
-	return (msm_chg.batt_cap  <=  BATT_CHARGING_LEVEL);	
+	return (msm_chg.batt_cap  <=  BATT_CHARGING_LEVEL);
 }
 
 static int is_batt_status_charging(void)
@@ -357,7 +325,7 @@ static ssize_t disable(struct device_driver *driver,const char *buf,size_t count
 	int flag=(int)buf[0] -0x30;
 	if(flag)
 	{
-	    set_max8903_cen(0);
+		set_max8903_cen(0);
 		dev_info(msm_chg.dev, "[%s %d] close charging...... \n", __func__, __LINE__ );
 	}
 	else
@@ -377,7 +345,7 @@ static DRIVER_ATTR(chg_enable, S_IWUSR|S_IWGRP, NULL, disable);
 //
 //static int open_close_charging(int flag)
 //{
-//    
+//
 //	if(flag)
 //	{
 //		set_max8903_cen(1);
@@ -394,7 +362,7 @@ static DRIVER_ATTR(chg_enable, S_IWUSR|S_IWGRP, NULL, disable);
 //
 //}
 
-static int is_wall_charger_exist(void)		
+static int is_wall_charger_exist(void)
 {
 	int ret = 0;
 	struct msm_hardware_charger_priv *hw_chg_priv;
@@ -427,13 +395,13 @@ static void update_batt_status(void)
 
 	dev_dbg(msm_chg.dev, "[%s %d] update battery status now...... \n", __func__, __LINE__ );
 
-	get_batt_status();	
+	get_batt_status();
 
 	if(is_battery_present())
 	{
 		if(is_battery_temp_within_range())
 		{
-			if(is_wall_charger_exist()) {			
+			if(is_wall_charger_exist()) {
 				if(is_battery_capacity_lower_setting()) {
 					msm_chg.batt_status = BATT_STATUS_CHARGING;
 					dev_dbg(msm_chg.dev, "[%s %d] battery need charging...... \n", __func__, __LINE__ );
@@ -449,8 +417,8 @@ static void update_batt_status(void)
 					}
 					else
 					{
-						if(is_battery_charging_full())  
-						{						
+						if(is_battery_charging_full())
+						{
 							msm_chg.batt_status = BATT_STATUS_JUST_FINISHED_CHARGING;
 						dev_dbg(msm_chg.dev, "[%s %d] battery charge to full...... \n", __func__, __LINE__ );
 							goto close_charging;
@@ -461,7 +429,7 @@ static void update_batt_status(void)
 			else 
 			{
 				msm_chg.batt_status = BATT_STATUS_DISCHARGING;
-				goto close_charging;				
+				goto close_charging;
 			}
 		}
 		else
@@ -483,17 +451,17 @@ open_charging:
 	if(last_status != BATT_STATUS_CHARGING)
 	{
 		dev_dbg(msm_chg.dev, "[%s %d] battery turn to charging...... \n", __func__, __LINE__ );
-		//open_close_charging(1);	
+		//open_close_charging(1);
 		msm_chg.start_charging_jiffies = jiffies;
 	}	
-	return;	
+	return;
 
 close_charging:
 
 	if(last_status == BATT_STATUS_CHARGING)
 	{
 		dev_dbg(msm_chg.dev, "[%s %d] battery turn to discharging...... \n", __func__, __LINE__ );
-		//open_close_charging(0);	
+		//open_close_charging(0);
 	}	
 	return;
 }
@@ -538,18 +506,18 @@ static int msm_batt_property_filter(enum power_supply_property psp)
 }
 
 static int msm_gauge_power_get_property(struct power_supply *psy,
-				       enum power_supply_property psp,
-				       union power_supply_propval *val)
+						enum power_supply_property psp,
+						union power_supply_propval *val)
 {
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		val->intval = msm_chg.batt_cur;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		val->intval = msm_chg.batt_vol * 1000;			//bq27x50
+		val->intval = msm_chg.batt_vol * 1000;		//bq27x50
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
-		val->intval = msm_chg.batt_cap;	
+		val->intval = msm_chg.batt_cap;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
 		val->intval = msm_chg.batt_temp; 
@@ -570,16 +538,16 @@ static int msm_gauge_power_get_property(struct power_supply *psy,
 }
 
 static int msm_batt_power_get_property(struct power_supply *psy,
-				       enum power_supply_property psp,
-				       union power_supply_propval *val)
+						enum power_supply_property psp,
+						union power_supply_propval *val)
 {
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-		if (is_batt_status_charging() && is_wall_charger_exist())   
+		if (is_batt_status_charging() && is_wall_charger_exist())
 			val->intval = POWER_SUPPLY_STATUS_CHARGING;
 		else if ((msm_chg.batt_status == BATT_STATUS_JUST_FINISHED_CHARGING)
-                    && is_wall_charger_exist())   
-			val->intval = POWER_SUPPLY_STATUS_FULL;		//
+					&& is_wall_charger_exist())   
+			val->intval = POWER_SUPPLY_STATUS_FULL;
 		else if (msm_chg.batt_status != BATT_STATUS_ABSENT)
 			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
 		else
@@ -598,7 +566,7 @@ static int msm_batt_power_get_property(struct power_supply *psy,
 			val->intval = POWER_SUPPLY_HEALTH_GOOD;
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
-		val->intval = msm_chg.batt_present;	
+		val->intval = msm_chg.batt_present;
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
@@ -607,7 +575,7 @@ static int msm_batt_power_get_property(struct power_supply *psy,
 		val->intval = 4200;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
-		val->intval = 3600;
+		val->intval = 3200;
 		break;
 	default:
 		return -EINVAL;
@@ -617,14 +585,14 @@ static int msm_batt_power_get_property(struct power_supply *psy,
 
 
 static int msm_power_get_property(struct power_supply *psy,
-				       enum power_supply_property psp,
-				       union power_supply_propval *val)
+						enum power_supply_property psp,
+						union power_supply_propval *val)
 {
 	if(msm_batt_property_filter(psp)) {
 		return msm_gauge_power_get_property(psy, psp, val);
 	}
 	else {
-		return msm_batt_power_get_property(psy, psp, val);	
+		return msm_batt_power_get_property(psy, psp, val);
 	}
 }
 
@@ -633,9 +601,9 @@ static struct power_supply msm_psy_batt = {
 	.type = POWER_SUPPLY_TYPE_BATTERY,
 	.properties = msm_batt_power_props,
 	.num_properties = ARRAY_SIZE(msm_batt_power_props),
-/* Begin: wuxinxian w00176579 20110123 modify for bq275x0	*/
+/* Begin: wuxinxian w00176579 20110123 modify for bq275x0 */
 	.get_property = msm_power_get_property,
-/* End: wuxinxian w00176579 20110123 modify for bq275x0	*/	
+/* End: wuxinxian w00176579 20110123 modify for bq275x0 */
 };
 
 static void update_heartbeat(struct work_struct *work)
@@ -652,56 +620,29 @@ static void update_heartbeat(struct work_struct *work)
 
 	queue_delayed_work(msm_chg.event_wq_thread,
 				&msm_chg.update_heartbeat_work,
-			      round_jiffies_relative(msecs_to_jiffies
-						     (msm_chg.update_time)));
+					round_jiffies_relative(msecs_to_jiffies
+							(msm_chg.update_time)));
 }
 
 static void handle_charger_inserted(struct msm_hardware_charger_priv *hw_chg_priv)
 {
-	hw_chg_priv->hw_chg_state = CHG_PRESENT_STATE;	
+	hw_chg_priv->hw_chg_state = CHG_PRESENT_STATE;
 }
 
 static void handle_charger_removed(struct msm_hardware_charger_priv *hw_chg_priv)
 {
-	hw_chg_priv->hw_chg_state = CHG_ABSENT_STATE;	
+	hw_chg_priv->hw_chg_state = CHG_ABSENT_STATE;
 }
-
-//
-//static void check_usb_charging(struct msm_hardware_charger *hw_chg)
-//{
-//    
-//	struct msm_hardware_charger_priv *hw_chg_priv;
-//
-//	if(hw_chg)
-//		hw_chg_priv = hw_chg->charger_private;
-//	else
-//		goto exit_check;
-//
-//	if(hw_chg->rating != 1)
-//		goto exit_check;
-//
-//	if(hw_chg_priv->hw_chg_state != CHG_ABSENT_STATE && msm_chg.usb_charging_control)   
-//		msm_chg.usb_charging_en = 1;
-//	else
-//		msm_chg.usb_charging_en = 0;
-//   
-//
-//exit_check:
-//	pr_debug("usb charging en = %d\n", msm_chg.usb_charging_en);
-//
-//
-//}
-//
 
 static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 {
 	struct msm_hardware_charger_priv *hw_chg_priv;
-	
+
 	hw_chg_priv = hw_chg->charger_private;
 	dev_dbg(msm_chg.dev, "%s %d from %s\n", __func__, event, hw_chg->charger.name);
-	//msleep(200);		
+	//msleep(200);
 	if (event == CHG_STAT_EVENT) {
-		if(hw_chg->get_charger_status(hw_chg->gpio_num)) {	/*this debounces it */
+		if(hw_chg->get_charger_status(hw_chg->gpio_num)) {		/*this debounces it */
 			event = CHG_INSERTED_EVENT;
 		} else {
 			event = CHG_REMOVED_EVENT;
@@ -709,29 +650,29 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 	}
 	//msleep(200);
 	mutex_lock(&msm_chg.status_lock);
-	
+
 	switch (event) {
-	case CHG_INSERTED_EVENT:	
+	case CHG_INSERTED_EVENT:
 		handle_charger_inserted(hw_chg_priv);
 		//#ifdef CONFIG_HAS_WAKELOCK
 			//wake_lock_timeout(&hw_chg_priv->wl, 500);
- 		//#endif		
+ 		//#endif
 		break;
 	case CHG_REMOVED_EVENT:
 		handle_charger_removed(hw_chg_priv);
 		break;
 //	case CHG_USB_ON:
 //		msm_chg.usb_charging_control = 1;
-//		set_usb_charging_ctrl(0);   
+//		set_usb_charging_ctrl(0);
 //		break;
 //	case CHG_USB_OFF:
 //		msm_chg.usb_charging_control = 0;
-//		set_usb_charging_ctrl(1);        
+//		set_usb_charging_ctrl(1);
 //		break;
 	default:
 		pr_err("error event...\n");
 		break;
-	}	
+	}
 
 //	check_usb_charging(hw_chg);
 
@@ -783,7 +724,7 @@ static int msm_chg_enqueue_event(struct msm_hardware_charger *hw_chg,
 	msm_chg.queue[msm_chg.tail].hw_chg = hw_chg;
 	if(!full) {
 		msm_chg.tail = (msm_chg.tail + 1)%MSM_CHG_MAX_EVENTS;
-		msm_chg.queue_count++;		
+		msm_chg.queue_count++;
 	}
 	spin_unlock_irqrestore(&msm_chg.queue_lock, flags);
 	return 0;
@@ -827,13 +768,13 @@ static int __init determine_initial_batt_status(void)
 
 	/* get init state of charging */
 	msm_chg.batt_present = 0;
-	msm_chg.batt_vol = 0;	
+	msm_chg.batt_vol = 0;
 	msm_chg.batt_cur = 0;
 	msm_chg.batt_cap = 0;
-	msm_chg.batt_temp = 0;	
+	msm_chg.batt_temp = 0;
 	msm_chg.batt_tte = 0;
 	
-	get_batt_status();	
+	get_batt_status();
 	if (is_battery_present()) {
 			if (is_battery_temp_within_range())
 				msm_chg.batt_status = BATT_STATUS_DISCHARGING;
@@ -860,9 +801,9 @@ static int __init determine_initial_batt_status(void)
 	 * milliseconds */
 	queue_delayed_work(msm_chg.event_wq_thread,
 				&msm_chg.update_heartbeat_work,
-			      round_jiffies_relative(msecs_to_jiffies
-						     (msm_chg.update_time)));
-		
+					round_jiffies_relative(msecs_to_jiffies
+							(msm_chg.update_time)));
+
 	return 0;
 }
 
@@ -884,8 +825,8 @@ static ssize_t store(struct device_driver *driver,const char *buf,size_t count)
 	if(count <=0)
 		return -1;
 
-	charging_level = (u8)buf[0];	
-	
+	charging_level = (u8)buf[0];
+
 	return 0;
 }
 static DRIVER_ATTR(cap_limit, S_IRUSR | S_IWUSR, show, store);
@@ -893,7 +834,7 @@ static DRIVER_ATTR(cap_limit, S_IRUSR | S_IWUSR, show, store);
 static int __devinit msm_charger_probe(struct platform_device *pdev)
 {
 	int rc;
-	
+
 	msm_chg.dev = &pdev->dev;
 
 	if (pdev->dev.platform_data) {
@@ -902,14 +843,14 @@ static int __devinit msm_charger_probe(struct platform_device *pdev)
 		struct msm_charger_platform_data *pdata =
 		    (struct msm_charger_platform_data *)pdev->dev.platform_data;
 
-		milli_secs = pdata->update_time * 30 * MSEC_PER_SEC;    
+		milli_secs = pdata->update_time * 30 * MSEC_PER_SEC;
 		if (milli_secs > jiffies_to_msecs(MAX_JIFFY_OFFSET)) {
 			dev_warn(&pdev->dev, "%s: safety time too large"
 				 "%dms\n", __func__, milli_secs);
 			milli_secs = jiffies_to_msecs(MAX_JIFFY_OFFSET);
 		}
 		msm_chg.update_time = milli_secs;
-		msm_chg.setup_charging_gpio_status = pdata->setup_charging_gpio_status;	
+		msm_chg.setup_charging_gpio_status = pdata->setup_charging_gpio_status;
 	}
 
 	if(g_battery_measure_by_bq275x0_i2c_client)
@@ -921,12 +862,12 @@ static int __devinit msm_charger_probe(struct platform_device *pdev)
 		pr_err("%s failed, check bq275x0 module installed...\n", __func__);
 		return -EINVAL;
 	}
-    rc = driver_create_file(&(msm_charger_driver.driver), &driver_attr_chg_enable);
+	rc = driver_create_file(&(msm_charger_driver.driver), &driver_attr_chg_enable);
 	if (rc < 0)
 	{
 		pr_err("failed to create sysfs entry(CEN_N): %d\n", rc);
 		return -1;
-	}	
+	}
 
     rc = driver_create_file(&(msm_charger_driver.driver), &driver_attr_cap_limit);
     if (rc < 0)
@@ -962,17 +903,17 @@ static int __devexit msm_charger_remove(struct platform_device *pdev)
 {
 	mutex_destroy(&msm_chg.status_lock);
 	power_supply_unregister(&msm_psy_batt);
-//    
+//
 //	driver_remove_file(&(msm_charger_driver.driver), &driver_attr_state);
-//    
+//
 	return 0;
 }
 
 int msm_charger_notify_event(struct msm_hardware_charger *hw_chg,
-			     enum msm_hardware_charger_event event)
+				enum msm_hardware_charger_event event)
 {
 	struct msm_hardware_charger_priv *hw_chg_priv;
-	
+
 	hw_chg_priv = hw_chg->charger_private;
 
 	msm_chg_enqueue_event(hw_chg, event);
@@ -1021,7 +962,7 @@ int msm_charger_register(struct msm_hardware_charger *hw_chg)
 	return 0;
 
 out:
-#ifdef CONFIG_HAS_WAKELOCK	
+#ifdef CONFIG_HAS_WAKELOCK
 	wake_lock_destroy(&priv->wl);
 #endif
 	kfree(priv);
@@ -1037,7 +978,7 @@ int msm_charger_unregister(struct msm_hardware_charger *hw_chg)
 	mutex_lock(&msm_chg.msm_hardware_chargers_lock);
 	list_del(&priv->list);
 	mutex_unlock(&msm_chg.msm_hardware_chargers_lock);
-#ifdef CONFIG_HAS_WAKELOCK	
+#ifdef CONFIG_HAS_WAKELOCK
 	wake_lock_destroy(&priv->wl);
 #endif
 	power_supply_unregister(&hw_chg->charger);
@@ -1049,8 +990,7 @@ EXPORT_SYMBOL(msm_charger_unregister);
 void cancel_update_battery_status(void)
 {
 	cancel_delayed_work(&msm_chg.update_heartbeat_work);
-	old_battery_capacity = -1;
-	smooth_step = 0;
+	realzero = 0;
 }
 
 static int msm_charger_suspend(struct platform_device * dev, pm_message_t state)
@@ -1084,10 +1024,10 @@ static struct platform_driver msm_charger_driver = {
 	.probe = msm_charger_probe,
 	.remove = __devexit_p(msm_charger_remove),
 	.suspend = msm_charger_suspend,
-	.resume = msm_charger_resume,	
+	.resume = msm_charger_resume,
 	.driver = {
-		   .name = "msm-charger",
-		   .owner = THIS_MODULE,
+			.name = "msm-charger",
+			.owner = THIS_MODULE,
 	},
 };
 
