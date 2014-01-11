@@ -39,18 +39,22 @@
 
 #include <wlioctl.h>
 
-#ifdef SET_RANDOM_MAC_SOFTAP
+
 #include <linux/random.h>
 #include <linux/jiffies.h>
-#endif
+
 
 #ifdef GET_CUSTOM_MAC_ENABLE
 int wifi_get_mac_addr(unsigned char *buf);
 #endif /* GET_CUSTOM_MAC_ENABLE */
 
+char devmode[MOD_PARAM_PATHLEN] = {0};
+module_param_string(devmode, devmode, MOD_PARAM_PATHLEN, 0);
+
 int dhd_msg_level;
 
 #include <wl_iw.h>
+
 
 char fw_path[MOD_PARAM_PATHLEN];
 char nv_path[MOD_PARAM_PATHLEN];
@@ -135,6 +139,7 @@ const bcm_iovar_t dhd_iovars[] = {
 	{NULL, 0, 0, 0, 0 }
 };
 
+#define HUAWEI_WIFI_LOAD_PATH "/system/etc/wifi/"
 void
 dhd_common_init(void)
 {
@@ -144,17 +149,22 @@ dhd_common_init(void)
 	 * behaviour since the value of the globals may be different on the
 	 * first time that the driver is initialized vs subsequent initializations.
 	 */
-	dhd_msg_level = DHD_ERROR_VAL;
-#ifdef CONFIG_BCM4329_FW_PATH
-	strncpy(fw_path, CONFIG_BCM4329_FW_PATH, MOD_PARAM_PATHLEN-1);
-#else
-	fw_path[0] = '\0';
-#endif
-#ifdef CONFIG_BCM4329_NVRAM_PATH
-	strncpy(nv_path, CONFIG_BCM4329_NVRAM_PATH, MOD_PARAM_PATHLEN-1);
-#else
-	nv_path[0] = '\0';
-#endif
+    if(strcmp(devmode,"ap") == 0)
+    {
+        strcpy(fw_path,  HUAWEI_WIFI_LOAD_PATH "rtecdc-apsta-bcm4329.bin");
+    }
+    else if(strcmp(devmode,"test") == 0)
+    {
+	strcpy(fw_path,  HUAWEI_WIFI_LOAD_PATH "rtecdc-mfgtest-bcm4329.bin");
+     }
+    else
+    {   
+	strcpy(fw_path,  HUAWEI_WIFI_LOAD_PATH "rtecdc-bcm4329.bin");
+      }
+
+    DHD_ERROR(("%s:fw_path = %s \n", __FUNCTION__,fw_path));
+	strcpy(nv_path,  HUAWEI_WIFI_LOAD_PATH "nvram-bcm4329.txt");
+     		DHD_ERROR(("%s:nv_path = %s \n", __FUNCTION__,nv_path));
 }
 
 static int
@@ -1319,29 +1329,21 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	uint dtim = 1;
 #endif
 	int ret = 0;
-#ifdef GET_CUSTOM_MAC_ENABLE
-	struct ether_addr ea_addr;
-#endif /* GET_CUSTOM_MAC_ENABLE */
 
 	dhd_os_proto_block(dhd);
 
-#ifdef GET_CUSTOM_MAC_ENABLE
-	/*
-	** Read MAC address from external customer place
-	** NOTE that default mac address has to be present in otp or nvram file
-	** to bring up firmware but unique per board mac address maybe provided
-	** by customer code
-	*/
-	ret = dhd_custom_get_mac_address(ea_addr.octet);
-	if (!ret) {
-		bcm_mkiovar("cur_etheraddr", (void *)&ea_addr, ETHER_ADDR_LEN, buf, sizeof(buf));
-		ret = dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
-		if (ret < 0) {
-			DHD_ERROR(("%s: can't set MAC address , error=%d\n", __FUNCTION__, ret));
-		} else
-			memcpy(dhd->mac.octet, (void *)&ea_addr, ETHER_ADDR_LEN);
+        dhdp_write_mac_address(dhd);
+
+        bcm_mkiovar("cur_etheraddr", (char *)dhd->mac.octet, ETHER_ADDR_LEN, buf, sizeof(buf));
+        ret = dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+        if (ret < 0) {
+            DHD_ERROR(("%s: can't set MAC address , error=%d\n", __FUNCTION__, ret));
 	}
-#endif /* GET_CUSTOM_MAC_ENABLE */
+
+        DHD_ERROR(("%s: use MAC address in custom %02x:%02x:%02x:%02x:%02x:%02x\n",
+				  __FUNCTION__,
+				  dhd->mac.octet[0], dhd->mac.octet[1], dhd->mac.octet[2],
+				  dhd->mac.octet[3], dhd->mac.octet[4], dhd->mac.octet[5] ));
 
 #ifdef SET_RANDOM_MAC_SOFTAP
 	if (strstr(fw_path, "apsta") != NULL) {
