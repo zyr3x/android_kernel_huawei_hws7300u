@@ -404,7 +404,7 @@ int bq275x0_get_min_volt()
     unsigned int length;
     int k = 0;
     int ret = 0;
-    int def_ret = 3450;
+    int def_ret = 3200;
     
     /* open file */
     oldfs = get_fs();
