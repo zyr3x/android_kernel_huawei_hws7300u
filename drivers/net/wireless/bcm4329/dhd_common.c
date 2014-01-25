@@ -39,10 +39,9 @@
 
 #include <wlioctl.h>
 
-#ifdef SET_RANDOM_MAC_SOFTAP
 #include <linux/random.h>
 #include <linux/jiffies.h>
-#endif
+
 
 #ifdef GET_CUSTOM_MAC_ENABLE
 int wifi_get_mac_addr(unsigned char *buf);
@@ -1383,8 +1382,19 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 				  dhd->mac.octet[3], dhd->mac.octet[4], dhd->mac.octet[5] ));
 		}
 	} else {
+		uint rand_mac;
+
+		srandom32((uint)jiffies);
+		rand_mac = random32();
+		iovbuf[0] = 0x02;              /* locally administered bit */
+		iovbuf[1] = 0x1A;
+		iovbuf[2] = 0x11;
+		iovbuf[3] = (unsigned char)(rand_mac & 0x0F) | 0xF0;
+		iovbuf[4] = (unsigned char)(rand_mac >> 8);
+		iovbuf[5] = (unsigned char)(rand_mac >> 16);
+
 		memcpy(dhd->mac.octet, iovbuf, ETHER_ADDR_LEN);
-		DHD_ERROR(("%s: use MAC address in nvram %02x:%02x:%02x:%02x:%02x:%02x\n",
+		DHD_ERROR(("%s: use MAC random address %02x:%02x:%02x:%02x:%02x:%02x\n",
 			  __FUNCTION__,
 			  dhd->mac.octet[0], dhd->mac.octet[1], dhd->mac.octet[2],
 			  dhd->mac.octet[3], dhd->mac.octet[4], dhd->mac.octet[5] ));
