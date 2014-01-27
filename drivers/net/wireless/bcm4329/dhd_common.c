@@ -1328,78 +1328,20 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	uint dtim = 1;
 #endif
 	int ret = 0;
-#ifdef GET_CUSTOM_MAC_ENABLE
-	struct ether_addr ea_addr;
-#endif /* GET_CUSTOM_MAC_ENABLE */
 
 	dhd_os_proto_block(dhd);
 
-#ifdef GET_CUSTOM_MAC_ENABLE
-	/*
-	** Read MAC address from external customer place
-	** NOTE that default mac address has to be present in otp or nvram file
-	** to bring up firmware but unique per board mac address maybe provided
-	** by customer code
-	*/
-	ret = dhd_custom_get_mac_address(ea_addr.octet);
-	if (!ret) {
-		bcm_mkiovar("cur_etheraddr", (void *)&ea_addr, ETHER_ADDR_LEN, buf, sizeof(buf));
-		ret = dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
-		if (ret < 0) {
-			DHD_ERROR(("%s: can't set MAC address , error=%d\n", __FUNCTION__, ret));
-		} else
-			memcpy(dhd->mac.octet, (void *)&ea_addr, ETHER_ADDR_LEN);
+	dhdp_write_mac_address(dhd); 
+	bcm_mkiovar("cur_etheraddr",  (char *)dhd->mac.octet, ETHER_ADDR_LEN, buf, sizeof(buf));
+	ret = dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, buf, sizeof(buf));
+	if (ret < 0) {
+		DHD_ERROR(("%s: can't set MAC address , error=%d\n", __FUNCTION__, ret));
 	}
-#endif /* GET_CUSTOM_MAC_ENABLE */
-
-/*porting,WIFI Module,hanshirong 66539,20101108 begin++ */
-	/* Get the device MAC address */
-	//int ret = 0;
-        memset(buf,0,sizeof(buf));
-        strcpy(iovbuf, "cur_etheraddr");
-	if ((ret = dhdcdc_query_ioctl(dhd, 0, WLC_GET_VAR, iovbuf, sizeof(iovbuf))) < 0) {
-		DHD_ERROR(("%s: can't get MAC address , error=%d\n", __FUNCTION__, ret));
-		/*return BCME_NOTUP;*/
-	}
-
-	if ( dhd->mac.octet[0] || dhd->mac.octet[1] || dhd->mac.octet[2] ||
-	     dhd->mac.octet[3] || dhd->mac.octet[4] || dhd->mac.octet[5] ) {
-		if (memcmp(dhd->mac.octet, iovbuf, ETHER_ADDR_LEN) != 0) {
-			/* Set the device MAC address */
-			bcm_mkiovar("cur_etheraddr", (char *)dhd->mac.octet, ETHER_ADDR_LEN, iovbuf, sizeof(iovbuf));
-			if ((ret = dhdcdc_set_ioctl(dhd, 0, WLC_SET_VAR, iovbuf, sizeof(iovbuf))) < 0) {
-				DHD_ERROR(("%s: can't set MAC address , error=%d\n", __FUNCTION__, ret));
-				/*return BCME_NOTUP;*/
-			}
-			DHD_ERROR(("%s: use MAC address in ram %02x:%02x:%02x:%02x:%02x:%02x\n",
+	
+	DHD_ERROR(("%s: use MAC address in custom %02x:%02x:%02x:%02x:%02x:%02x\n",
 				  __FUNCTION__,
 				  dhd->mac.octet[0], dhd->mac.octet[1], dhd->mac.octet[2],
 				  dhd->mac.octet[3], dhd->mac.octet[4], dhd->mac.octet[5] ));
-		} else {
-			DHD_ERROR(("%s: same MAC address in ram and nvram %02x:%02x:%02x:%02x:%02x:%02x\n",
-				  __FUNCTION__,
-				  dhd->mac.octet[0], dhd->mac.octet[1], dhd->mac.octet[2],
-				  dhd->mac.octet[3], dhd->mac.octet[4], dhd->mac.octet[5] ));
-		}
-	} else {
-		uint rand_mac;
-
-		srandom32((uint)jiffies);
-		rand_mac = random32();
-		iovbuf[0] = 0x02;              /* locally administered bit */
-		iovbuf[1] = 0x1A;
-		iovbuf[2] = 0x11;
-		iovbuf[3] = (unsigned char)(rand_mac & 0x0F) | 0xF0;
-		iovbuf[4] = (unsigned char)(rand_mac >> 8);
-		iovbuf[5] = (unsigned char)(rand_mac >> 16);
-
-		memcpy(dhd->mac.octet, iovbuf, ETHER_ADDR_LEN);
-		DHD_ERROR(("%s: use MAC random address %02x:%02x:%02x:%02x:%02x:%02x\n",
-			  __FUNCTION__,
-			  dhd->mac.octet[0], dhd->mac.octet[1], dhd->mac.octet[2],
-			  dhd->mac.octet[3], dhd->mac.octet[4], dhd->mac.octet[5] ));
-	}
-	/*porting,WIFI Module,hanshirong 66539,20101108 end-- */
 
 #ifdef SET_RANDOM_MAC_SOFTAP
 	if (strstr(fw_path, "apsta") != NULL) {

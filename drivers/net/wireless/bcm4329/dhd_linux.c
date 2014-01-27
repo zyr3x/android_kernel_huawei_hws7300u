@@ -2282,6 +2282,42 @@ wmic_ether_aton(const char *orig, unsigned char *eth)
 }
 
 
+void dhdp_write_mac_address(dhd_pub_t * pub) 
+{
+
+	unsigned char mac_p[ETHER_ADDR_LEN];
+	struct ether_addr *mac_addr = NULL;
+
+	mac_addr = (struct ether_addr *)mac_p;
+
+	if (strlen(mac_param))
+	{
+		/* convert mac address */
+		DHD_TRACE(("%s: mac_param is %s\n", __FUNCTION__, mac_param));
+
+		if (!wmic_ether_aton(mac_param, (unsigned char *)mac_p)) {
+			DHD_ERROR(("%s: convert mac value fail\n", __FUNCTION__));
+		}
+
+		/* the converted mac address */
+		DHD_TRACE(("%s: converted mac value is %02x:%02x:%02x:%02x:%02x:%02x\n",
+			  __FUNCTION__,
+			  mac_p[0], mac_p[1], mac_p[2],
+			  mac_p[3], mac_p[4], mac_p[5] ));
+
+		/* Update MAC address into RAM */
+		//_dhd_set_mac_address(dhd, ifidx, mac_addr);
+		memcpy(pub->mac.octet, mac_addr, ETHER_ADDR_LEN);
+	}
+	else 
+	{
+		DHD_TRACE(("Warning %s: mac_param is NULL \n", __FUNCTION__));
+	}
+	
+	
+}
+
+
 void dhd_write_mac_address( dhd_info_t * dhd) 
 {
 
