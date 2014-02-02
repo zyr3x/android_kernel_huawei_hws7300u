@@ -3487,7 +3487,7 @@ unsigned char hdmi_is_primary;
 #endif  /* CONFIG_FB_MSM_OVERLAY1_WRITEBACK */
 
 #define MSM_PMEM_KERNEL_EBI1_SIZE  0x600000
-#define MSM_PMEM_ADSP_SIZE         0x3000000
+#define MSM_PMEM_ADSP_SIZE         0x1200000
 #define MSM_PMEM_AUDIO_SIZE        0x28B000
 
 #define MSM_SMI_BASE          0x38000000
@@ -3506,15 +3506,15 @@ unsigned char hdmi_is_primary;
 #define MSM_ION_MM_SIZE		0x3600000 /* (54MB) */
 #define MSM_ION_MFC_SIZE	SZ_8K
 #ifdef CONFIG_FB_MSM_OVERLAY1_WRITEBACK
-#define MSM_ION_WB_SIZE		0xC00000 /* 12MB */
+#define MSM_ION_WB_SIZE		0x1700000 /* 24MB */
 #else
-#define MSM_ION_WB_SIZE		0x600000 /* 6MB */
+#define MSM_ION_WB_SIZE		0x1400000 /* 20MB */
 #endif
 #define MSM_ION_QSECOM_SIZE	0x600000 /* (6MB) */
 #define MSM_ION_AUDIO_SIZE	MSM_PMEM_AUDIO_SIZE
 
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-#define MSM_ION_HEAP_NUM	9
+#define MSM_ION_HEAP_NUM	7 //9
 #define MSM_HDMI_PRIM_ION_SF_SIZE MSM_HDMI_PRIM_PMEM_SF_SIZE
 static unsigned msm_ion_sf_size = MSM_ION_SF_SIZE;
 #else
@@ -3529,13 +3529,13 @@ static int __init fb_size_setup(char *p)
 }
 early_param("fb_size", fb_size_setup);
 
-static unsigned pmem_kernel_ebi1_size = MSM_PMEM_KERNEL_EBI1_SIZE;
+/*static unsigned pmem_kernel_ebi1_size = MSM_PMEM_KERNEL_EBI1_SIZE;
 static int __init pmem_kernel_ebi1_size_setup(char *p)
 {
 	pmem_kernel_ebi1_size = memparse(p, NULL);
 	return 0;
 }
-early_param("pmem_kernel_ebi1_size", pmem_kernel_ebi1_size_setup);
+early_param("pmem_kernel_ebi1_size", pmem_kernel_ebi1_size_setup);*/
 
 #ifdef CONFIG_ANDROID_PMEM
 static unsigned pmem_sf_size = MSM_PMEM_SF_SIZE;
@@ -3967,13 +3967,17 @@ static struct resource hdmi_msm_resources[] = {
 
 static int hdmi_enable_5v(int on);
 static int hdmi_core_power(int on, int show);
+static int hdmi_gpio_config(int on);
 static int hdmi_cec_power(int on);
+static int hdmi_panel_power(int on);
 
 static struct msm_hdmi_platform_data hdmi_msm_data = {
 	.irq = HDMI_IRQ,
 	.enable_5v = hdmi_enable_5v,
 	.core_power = hdmi_core_power,
 	.cec_power = hdmi_cec_power,
+	.panel_power = hdmi_panel_power,
+	.gpio_config = hdmi_gpio_config,
 };
 
 static struct platform_device hdmi_msm_device = {
@@ -6934,7 +6938,7 @@ static struct ion_platform_data ion_pdata = {
 			.memory_type = ION_EBI_TYPE,
 			.extra_data = (void *) &cp_wb_ion_pdata,
 		},
-		{
+		/*{
 			.id	= ION_QSECOM_HEAP_ID,
 			.type	= ION_HEAP_TYPE_CARVEOUT,
 			.name	= ION_QSECOM_HEAP_NAME,
@@ -6949,7 +6953,7 @@ static struct ion_platform_data ion_pdata = {
 			.size	= MSM_ION_AUDIO_SIZE,
 			.memory_type = ION_EBI_TYPE,
 			.extra_data = (void *)&co_ion_pdata,
-		},
+		},*/
 #endif
 	}
 };
@@ -7029,7 +7033,8 @@ static void reserve_ion_memory(void)
 	msm8x60_reserve_table[MEMTYPE_SMI].size += MSM_ION_MFC_SIZE;
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_CAMERA_SIZE;
 	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_WB_SIZE;
-	msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_AUDIO_SIZE;
+        //msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_QSECOM_SIZE
+        //msm8x60_reserve_table[MEMTYPE_EBI1].size += MSM_ION_AUDIO_SIZE;
 #endif
 }
 
@@ -7061,7 +7066,7 @@ static void __init reserve_pmem_memory(void)
 	reserve_memory_for(&android_pmem_pdata);
 #endif
 	reserve_memory_for(&android_pmem_audio_pdata);
-	msm8x60_reserve_table[MEMTYPE_EBI1].size += pmem_kernel_ebi1_size;
+	//msm8x60_reserve_table[MEMTYPE_EBI1].size += pmem_kernel_ebi1_size;
 #endif
 }
 
@@ -11188,6 +11193,30 @@ static int hdmi_core_power(int on, int show)
 				"8058_l16", rc);
 			return rc;
 		}
+		pr_debug("%s(on): success\n", __func__);
+	} else {
+		rc = regulator_disable(reg_8058_l16);
+		if (rc)
+			pr_warning("'%s' regulator disable failed, rc=%d\n",
+				"8058_l16", rc);
+		pr_debug("%s(off): success\n", __func__);
+	}
+
+	prev_on = on;
+
+	return 0;
+}
+
+static int hdmi_gpio_config(int on)
+{
+        static struct regulator *reg_8058_l16;
+        int rc = 0;
+	static int prev_on;
+
+	if (on == prev_on)
+		return 0;
+
+	if (on) {
 		rc = gpio_request(170, "HDMI_DDC_CLK");
 		if (rc) {
 			pr_err("'%s'(%d) gpio_request failed, rc=%d\n",
@@ -11206,16 +11235,12 @@ static int hdmi_core_power(int on, int show)
 				"HDMI_HPD", 172, rc);
 			goto error3;
 		}
-		pr_info("%s(on): success\n", __func__);
+		pr_debug("%s(on): success\n", __func__);
 	} else {
 		gpio_free(170);
 		gpio_free(171);
 		gpio_free(172);
-		rc = regulator_disable(reg_8058_l16);
-		if (rc)
-			pr_warning("'%s' regulator disable failed, rc=%d\n",
-				"8058_l16", rc);
-		pr_info("%s(off): success\n", __func__);
+		pr_debug("%s(off): success\n", __func__);
 	}
 
 	prev_on = on;
@@ -11280,6 +11305,18 @@ error:
 	return rc;
 }
 
+static int hdmi_panel_power(int on)
+{
+	int rc;
+
+	pr_debug("%s: HDMI Core: %s\n", __func__, (on ? "ON" : "OFF"));
+	rc = hdmi_core_power(on, 1);
+	if (rc)
+		rc = hdmi_cec_power(on);
+
+	pr_debug("%s: HDMI Core: %s Success\n", __func__, (on ? "ON" : "OFF"));
+	return rc;
+}
 #undef _GET_REGULATOR
 
 #endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL */
@@ -11679,14 +11716,14 @@ static struct msm_bus_vectors dtv_bus_def_vectors[] = {
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_SMI,
 		.ab = 566092800,
-                .ib = 707616000,
+		.ib = 707616000,
 	},
 	/* Master and slaves can be from different fabrics */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 566092800,
-                .ib = 707616000,
+		.ib = 707616000,
 	},
 };
 static struct msm_bus_vectors dtv_bus_hdmi_prim_vectors[] = {
@@ -11697,14 +11734,14 @@ static struct msm_bus_vectors dtv_bus_hdmi_prim_vectors[] = {
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_SMI,
 		.ab = 2000000000,
-                .ib = 2000000000,
+		.ib = 2000000000,
 	},
 	/* Master and slaves can be from different fabrics */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 2000000000,
-                .ib = 2000000000,
+		.ib = 2000000000,
 	},
 };
 
@@ -11880,6 +11917,7 @@ static struct msm_panel_common_pdata mdp_pdata = {
 #else
 	.mem_hid = MEMTYPE_EBI1,
 #endif
+        .mdp_iommu_split_domain = 0,
 };
 static void __init reserve_mdp_memory(void)
 {
