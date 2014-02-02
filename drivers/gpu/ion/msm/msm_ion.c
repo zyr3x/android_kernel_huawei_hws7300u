@@ -16,6 +16,11 @@
 #include <linux/slab.h>
 #include <linux/memory_alloc.h>
 #include <linux/fmem.h>
+#include <linux/mm.h>
+#include <linux/mm_types.h>
+#include <linux/sched.h>
+#include <linux/rwsem.h>
+#include <linux/uaccess.h>
 #include <mach/ion.h>
 #include <mach/msm_memtypes.h>
 #include "../ion_priv.h"
@@ -213,43 +218,101 @@ static void msm_ion_allocate(struct ion_platform_heap *heap)
 	}
 }
 
-static int is_heap_overlapping(const struct ion_platform_heap *heap1,
-				const struct ion_platform_heap *heap2)
+static int check_vaddr_bounds(unsigned long start, unsigned long end)
 {
-	unsigned long heap1_base = heap1->base;
-	unsigned long heap2_base = heap2->base;
-	unsigned long heap1_end = heap1->base + heap1->size - 1;
-	unsigned long heap2_end = heap2->base + heap2->size - 1;
+	struct mm_struct *mm = current->active_mm;
+	struct vm_area_struct *vma;
+	int ret = 1;
 
-	if (heap1_base == heap2_base)
-		return 1;
-	if (heap1_base < heap2_base && heap1_end >= heap2_base)
-		return 1;
-	if (heap2_base < heap1_base && heap2_end >= heap1_base)
-		return 1;
-	return 0;
+	if (end < start)
+		goto out;
+
+	down_read(&mm->mmap_sem);
+	vma = find_vma(mm, start);
+	if (vma && vma->vm_start < end) {
+		if (start < vma->vm_start)
+			goto out_up;
+		if (end > vma->vm_end)
+			goto out_up;
+		ret = 0;
+	}
+
+out_up:
+	up_read(&mm->mmap_sem);
+out:
+	return ret;
 }
 
-static void check_for_heap_overlap(const struct ion_platform_heap heap_list[],
-				   unsigned long nheaps)
+static long msm_ion_custom_ioctl(struct ion_client *client,
+				unsigned int cmd,
+				unsigned long arg)
 {
-	unsigned long i;
-	unsigned long j;
+	switch (cmd) {
+	case ION_IOC_CLEAN_CACHES:
+	case ION_IOC_INV_CACHES:
+	case ION_IOC_CLEAN_INV_CACHES:
+	{
+		struct ion_flush_data data;
+		unsigned long start, end;
+		struct ion_handle *handle = NULL;
+		int ret;
 
-	for (i = 0; i < nheaps; ++i) {
-		const struct ion_platform_heap *heap1 = &heap_list[i];
-		if (!heap1->base)
-			continue;
-		for (j = i + 1; j < nheaps; ++j) {
-			const struct ion_platform_heap *heap2 = &heap_list[j];
-			if (!heap2->base)
-				continue;
-			if (is_heap_overlapping(heap1, heap2)) {
-				panic("Memory in heap %s overlaps with heap %s\n",
-					heap1->name, heap2->name);
+		if (copy_from_user(&data, (void __user *)arg,
+					sizeof(struct ion_flush_data)))
+			return -EFAULT;
+
+		start = (unsigned long) data.vaddr;
+		end = (unsigned long) data.vaddr + data.length;
+
+		if (start && check_vaddr_bounds(start, end)) {
+			pr_err("%s: virtual address %p is out of bounds\n",
+				__func__, data.vaddr);
+			return -EINVAL;
+		}
+
+		if (!data.handle) {
+			handle = ion_import_fd(client, data.fd);
+			if (IS_ERR_OR_NULL(handle)) {
+				pr_info("%s: Could not import handle: %d\n",
+					__func__, (int)handle);
+				return -EINVAL;
 			}
 		}
+
+		ret = ion_do_cache_op(client,
+				data.handle ? data.handle : handle,
+				data.vaddr, data.offset, data.length,
+				cmd);
+
+		if (!data.handle)
+			ion_free(client, handle);
+
+		if (ret < 0)
+			return ret;
+
+		break;
+
 	}
+	case ION_IOC_GET_FLAGS:
+	{
+		struct ion_flag_data data;
+		int ret;
+		if (copy_from_user(&data, (void __user *)arg,
+					sizeof(struct ion_flag_data)))
+			return -EFAULT;
+
+		ret = ion_handle_get_flags(client, data.handle, &data.flags);
+		if (ret < 0)
+			return ret;
+		if (copy_to_user((void __user *)arg, &data,
+					sizeof(struct ion_flag_data)))
+			return -EFAULT;
+		break;
+	}
+	default:
+		return -ENOTTY;
+	}
+	return 0;
 }
 
 static int msm_ion_probe(struct platform_device *pdev)
@@ -267,7 +330,7 @@ static int msm_ion_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	idev = ion_device_create(NULL);
+	idev = ion_device_create(msm_ion_custom_ioctl);
 	if (IS_ERR_OR_NULL(idev)) {
 		err = PTR_ERR(idev);
 		goto freeheaps;
@@ -298,8 +361,6 @@ static int msm_ion_probe(struct platform_device *pdev)
 
 		ion_device_add_heap(idev, heaps[i]);
 	}
-
-	check_for_heap_overlap(pdata->heaps, num_heaps);
 	platform_set_drvdata(pdev, idev);
 	return 0;
 

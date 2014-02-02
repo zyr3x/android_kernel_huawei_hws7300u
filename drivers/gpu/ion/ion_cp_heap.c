@@ -2,7 +2,7 @@
  * drivers/gpu/ion/ion_cp_heap.c
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -28,6 +28,8 @@
 #include <linux/seq_file.h>
 #include <linux/fmem.h>
 #include <linux/iommu.h>
+#include <trace/events/kmem.h>
+
 #include <mach/msm_memtypes.h>
 #include <mach/scm.h>
 #include <mach/iommu_domains.h>
@@ -106,7 +108,6 @@ static int ion_cp_protect_mem(unsigned int phy_base, unsigned int size,
 
 static int ion_cp_unprotect_mem(unsigned int phy_base, unsigned int size,
 				unsigned int permission_type);
-
 /**
  * Get the total number of kernel mappings.
  * Must be called with heap->lock locked.
@@ -245,13 +246,20 @@ ion_phys_addr_t ion_cp_allocate(struct ion_heap *heap,
 		mutex_lock(&cp_heap->lock);
 		cp_heap->allocated_bytes -= size;
 		if ((cp_heap->total_size -
-		     cp_heap->allocated_bytes) >= size)
-			pr_debug("%s: heap %s has enough memory (%lx) but"
+		     cp_heap->allocated_bytes) >= size) {
+			pr_info("%s: heap %s has enough memory (%lx) but"
 				" the allocation of size %lx still failed."
 				" Memory is probably fragmented.\n",
 				__func__, heap->name,
 				cp_heap->total_size -
 				cp_heap->allocated_bytes, size);
+		} else {
+			pr_info("%s: heap %s doesn't have enough memory (%lx) "
+				" the allocation of size %lx failed.",
+				__func__, heap->name,
+				cp_heap->total_size -
+				cp_heap->allocated_bytes, size);
+		}
 
 		if (cp_heap->reusable && !cp_heap->allocated_bytes &&
 		    cp_heap->heap_protected == HEAP_NOT_PROTECTED) {
@@ -551,25 +559,77 @@ int ion_cp_cache_ops(struct ion_heap *heap, struct ion_buffer *buffer,
 			void *vaddr, unsigned int offset, unsigned int length,
 			unsigned int cmd)
 {
-	void (*outer_cache_op)(phys_addr_t, phys_addr_t);
+	void (*outer_cache_op)(phys_addr_t, phys_addr_t) = NULL;
 	struct ion_cp_heap *cp_heap =
-	     container_of(heap, struct  ion_cp_heap, heap);
+		container_of(heap, struct  ion_cp_heap, heap);
+	unsigned int size_to_vmap, total_size;
+	int i, j;
+	void *ptr = NULL;
+	ion_phys_addr_t buff_phys = buffer->priv_phys;
 
-	switch (cmd) {
-	case ION_IOC_CLEAN_CACHES:
-		dmac_clean_range(vaddr, vaddr + length);
-		outer_cache_op = outer_clean_range;
-		break;
-	case ION_IOC_INV_CACHES:
-		dmac_inv_range(vaddr, vaddr + length);
-		outer_cache_op = outer_inv_range;
-		break;
-	case ION_IOC_CLEAN_INV_CACHES:
-		dmac_flush_range(vaddr, vaddr + length);
-		outer_cache_op = outer_flush_range;
-		break;
-	default:
-		return -EINVAL;
+	if (!vaddr) {
+		/*
+		 * Split the vmalloc space into smaller regions in
+		 * order to clean and/or invalidate the cache.
+		 */
+		size_to_vmap = (VMALLOC_END - VMALLOC_START)/8;
+		total_size = buffer->size;
+		for (i = 0; i < total_size; i += size_to_vmap) {
+			size_to_vmap = min(size_to_vmap, total_size - i);
+			for (j = 0; j < 10 && size_to_vmap; ++j) {
+				ptr = ioremap(buff_phys, size_to_vmap);
+				if (ptr) {
+					switch (cmd) {
+					case ION_IOC_CLEAN_CACHES:
+						dmac_clean_range(ptr,
+							ptr + size_to_vmap);
+						outer_cache_op =
+							outer_clean_range;
+						break;
+					case ION_IOC_INV_CACHES:
+						dmac_inv_range(ptr,
+							ptr + size_to_vmap);
+						outer_cache_op =
+							outer_inv_range;
+						break;
+					case ION_IOC_CLEAN_INV_CACHES:
+						dmac_flush_range(ptr,
+							ptr + size_to_vmap);
+						outer_cache_op =
+							outer_flush_range;
+						break;
+					default:
+						return -EINVAL;
+					}
+					buff_phys += size_to_vmap;
+					break;
+				} else {
+					size_to_vmap >>= 1;
+				}
+			}
+			if (!ptr) {
+				pr_err("Couldn't io-remap the memory\n");
+				return -EINVAL;
+			}
+			iounmap(ptr);
+		}
+	} else {
+		switch (cmd) {
+		case ION_IOC_CLEAN_CACHES:
+			dmac_clean_range(vaddr, vaddr + length);
+			outer_cache_op = outer_clean_range;
+			break;
+		case ION_IOC_INV_CACHES:
+			dmac_inv_range(vaddr, vaddr + length);
+			outer_cache_op = outer_inv_range;
+			break;
+		case ION_IOC_CLEAN_INV_CACHES:
+			dmac_flush_range(vaddr, vaddr + length);
+			outer_cache_op = outer_flush_range;
+			break;
+		default:
+			return -EINVAL;
+		}
 	}
 
 	if (cp_heap->has_outer_cache) {
@@ -579,8 +639,7 @@ int ion_cp_cache_ops(struct ion_heap *heap, struct ion_buffer *buffer,
 	return 0;
 }
 
-static int ion_cp_print_debug(struct ion_heap *heap, struct seq_file *s,
-			      const struct rb_root *mem_map)
+static int ion_cp_print_debug(struct ion_heap *heap, struct seq_file *s)
 {
 	unsigned long total_alloc;
 	unsigned long total_size;
@@ -604,45 +663,6 @@ static int ion_cp_print_debug(struct ion_heap *heap, struct seq_file *s,
 	seq_printf(s, "kmapping count: %lx\n", kmap_count);
 	seq_printf(s, "heap protected: %s\n", heap_protected ? "Yes" : "No");
 	seq_printf(s, "reusable: %s\n", cp_heap->reusable  ? "Yes" : "No");
-
-	if (mem_map) {
-		unsigned long base = cp_heap->base;
-		unsigned long size = cp_heap->total_size;
-		unsigned long end = base+size;
-		unsigned long last_end = base;
-		struct rb_node *n;
-
-		seq_printf(s, "\nMemory Map\n");
-		seq_printf(s, "%16.s %14.s %14.s %14.s\n",
-			   "client", "start address", "end address",
-			   "size (hex)");
-
-		for (n = rb_first(mem_map); n; n = rb_next(n)) {
-			struct mem_map_data *data =
-					rb_entry(n, struct mem_map_data, node);
-			const char *client_name = "(null)";
-
-			if (last_end < data->addr) {
-				seq_printf(s, "%16.s %14lx %14lx %14lu (%lx)\n",
-					   "FREE", last_end, data->addr-1,
-					   data->addr-last_end,
-					   data->addr-last_end);
-			}
-
-			if (data->client_name)
-				client_name = data->client_name;
-
-			seq_printf(s, "%16.s %14lx %14lx %14lu (%lx)\n",
-				   client_name, data->addr,
-				   data->addr_end,
-				   data->size, data->size);
-			last_end = data->addr_end+1;
-		}
-		if (last_end < end) {
-			seq_printf(s, "%16.s %14lx %14lx %14lu (%lx)\n", "FREE",
-				last_end, end-1, end-last_end, end-last_end);
-		}
-	}
 
 	return 0;
 }
@@ -745,7 +765,6 @@ free_iova:
 out:
 	return ret_value;
 }
-
 
 static int ion_cp_heap_map_iommu(struct ion_buffer *buffer,
 				struct ion_iommu_map *data,
@@ -977,14 +996,6 @@ void ion_cp_heap_destroy(struct ion_heap *heap)
 	cp_heap = NULL;
 }
 
-void ion_cp_heap_get_base(struct ion_heap *heap, unsigned long *base,
-		unsigned long *size) \
-{
-	struct ion_cp_heap *cp_heap =
-	     container_of(heap, struct  ion_cp_heap, heap);
-	*base = cp_heap->base;
-	*size = cp_heap->total_size;
-}
 
 /*  SCM related code for locking down memory for content protection */
 
