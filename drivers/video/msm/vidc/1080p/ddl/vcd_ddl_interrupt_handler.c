@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,7 +32,7 @@ static void ddl_get_dec_profile_level(struct ddl_decoder_data *decoder,
 static void ddl_handle_enc_frame_done(struct ddl_client_context *ddl,
 	u32 eos_present);
 static void ddl_handle_slice_done_slice_batch(struct ddl_client_context *ddl);
-static void ddl_handle_enc_frame_done_slice_mode(
+static u32 ddl_handle_enc_frame_done_slice_mode(
 		struct ddl_client_context *ddl, u32 eos_present);
 static void ddl_handle_enc_skipframe_slice_mode(
 		struct ddl_client_context *ddl, u32 eos_present);
@@ -161,11 +161,6 @@ static u32 ddl_encoder_seq_done_callback(struct ddl_context *ddl_context,
 	encoder = &ddl->codec_data.encoder;
 	vidc_1080p_get_encoder_sequence_header_size(
 		&encoder->seq_header_length);
-	if ((encoder->codec.codec == VCD_CODEC_H264) &&
-		(encoder->profile.profile == VCD_PROFILE_H264_BASELINE))
-		if ((encoder->seq_header.align_virtual_addr) &&
-			(encoder->seq_header_length > 6))
-			encoder->seq_header.align_virtual_addr[6] = 0xC0;
 	ddl_context->ddl_callback(VCD_EVT_RESP_START, VCD_S_SUCCESS,
 		NULL, 0, (u32 *) ddl, ddl->client_data);
 	ddl_release_command_channel(ddl_context,
@@ -189,6 +184,9 @@ static void parse_hdr_size_data(struct ddl_client_context *ddl,
 			&decoder->frame_size.height);
 		progressive = seq_hdr_info->dec_progressive;
 	}
+	decoder->yuv_size = decoder->frame_size.width *
+				decoder->frame_size.height;
+	decoder->yuv_size += decoder->yuv_size / 2;
 	decoder->min_dpb_num = seq_hdr_info->min_num_dpb;
 	vidc_sm_get_min_yc_dpb_sizes(
 		&ddl->shared_mem[ddl->command_channel],
@@ -258,6 +256,10 @@ static u32 ddl_decoder_seq_done_callback(struct ddl_context *ddl_context,
 		DDL_MSG_LOW("HEADER_DONE");
 		vidc_1080p_get_decode_seq_start_result(&seq_hdr_info);
 		parse_hdr_size_data(ddl, &seq_hdr_info);
+		decoder->mp2_datadump_status = 0;
+		vidc_sm_get_mp2datadump_status(&ddl->shared_mem
+			[ddl->command_channel],
+			&decoder->mp2_datadump_status);
 		if (res_trk_get_disable_fullhd() &&
 			(seq_hdr_info.img_size_x * seq_hdr_info.img_size_y >
 				1280 * 720)) {
@@ -272,8 +274,8 @@ static u32 ddl_decoder_seq_done_callback(struct ddl_context *ddl_context,
 		}
 		vidc_sm_get_profile_info(&ddl->shared_mem
 			[ddl->command_channel], &disp_profile_info);
-		disp_profile_info.pic_profile = seq_hdr_info.profile;
-		disp_profile_info.pic_level = seq_hdr_info.level;
+		seq_hdr_info.profile = disp_profile_info.pic_profile;
+		seq_hdr_info.level = disp_profile_info.pic_level;
 		ddl_get_dec_profile_level(decoder, seq_hdr_info.profile,
 			seq_hdr_info.level);
 		switch (decoder->codec.codec) {
@@ -312,6 +314,20 @@ static u32 ddl_decoder_seq_done_callback(struct ddl_context *ddl_context,
 					return process_further;
 				}
 			break;
+		case VCD_CODEC_VC1:
+		case VCD_CODEC_VC1_RCV:
+			if ((seq_hdr_info.img_size_x >
+					DDL_MAX_VC1_FRAME_WIDTH) ||
+				(seq_hdr_info.img_size_y >
+					DDL_MAX_VC1_FRAME_HEIGHT)) {
+				DDL_MSG_ERROR("Unsupported VC1 clip: "
+					"Resolution X=%d and Y=%d",
+					seq_hdr_info.img_size_x,
+					seq_hdr_info.img_size_y);
+					ddl_client_fatal_cb(ddl);
+					return process_further;
+			}
+			break;
 		default:
 			break;
 		}
@@ -348,16 +364,12 @@ static u32 ddl_decoder_seq_done_callback(struct ddl_context *ddl_context,
 				ddl->command_channel);
 		} else {
 			u32 seq_hdr_only_frame = false;
-			u32 need_reconfig = false;
+			u32 need_reconfig = false, eos_present = 0;
 			struct vcd_frame_data *input_vcd_frm =
 				&ddl->input_frame.vcd_frm;
 			need_reconfig = ddl_check_reconfig(ddl);
 			DDL_MSG_HIGH("%s : need_reconfig = %u\n", __func__,
 				 need_reconfig);
-			if (input_vcd_frm->flags &
-				  VCD_FRAME_FLAG_EOS) {
-				need_reconfig = false;
-			}
 			if (((input_vcd_frm->flags &
 				VCD_FRAME_FLAG_CODECCONFIG) &&
 				(!(input_vcd_frm->flags &
@@ -365,18 +377,28 @@ static u32 ddl_decoder_seq_done_callback(struct ddl_context *ddl_context,
 				input_vcd_frm->data_len <=
 				seq_hdr_info.dec_frm_size) {
 				seq_hdr_only_frame = true;
-				input_vcd_frm->offset +=
-					seq_hdr_info.dec_frm_size;
-				input_vcd_frm->data_len = 0;
-				input_vcd_frm->flags |=
-					VCD_FRAME_FLAG_CODECCONFIG;
-				ddl->input_frame.frm_trans_end =
-					!need_reconfig;
-				ddl_context->ddl_callback(
+				eos_present =
+				input_vcd_frm->flags & VCD_FRAME_FLAG_EOS;
+				if (!eos_present) {
+					input_vcd_frm->data_len = 0;
+					input_vcd_frm->offset +=
+						seq_hdr_info.dec_frm_size;
+					input_vcd_frm->flags |=
+						VCD_FRAME_FLAG_CODECCONFIG;
+					ddl->input_frame.frm_trans_end =
+						!need_reconfig;
+					ddl_context->ddl_callback(
 					VCD_EVT_RESP_INPUT_DONE,
 					VCD_S_SUCCESS, &ddl->input_frame,
 					sizeof(struct ddl_frame_data_tag),
 					(u32 *) ddl, ddl->client_data);
+				} else {
+					input_vcd_frm->flags &=
+					~(VCD_FRAME_FLAG_CODECCONFIG);
+					seq_hdr_only_frame = false;
+					pr_err("%s() Codec config buffer with eos\n",
+						__func__);
+				}
 			} else {
 				if (decoder->codec.codec ==
 					VCD_CODEC_VC1_RCV) {
@@ -479,7 +501,7 @@ static u32 ddl_dpb_buffers_set_done_callback(
 	return ret_status;
 }
 
-static void ddl_encoder_frame_run_callback(
+static u32 ddl_encoder_frame_run_callback(
 	struct ddl_client_context *ddl)
 {
 	struct ddl_context *ddl_context = ddl->ddl_context;
@@ -488,6 +510,7 @@ static void ddl_encoder_frame_run_callback(
 	struct vcd_frame_data *output_frame =
 		&(ddl->output_frame.vcd_frm);
 	u32 eos_present = false;
+	u32 status = true;
 
 	DDL_MSG_MED("ddl_encoder_frame_run_callback\n");
 	if (!DDLCLIENT_STATE_IS(ddl, DDL_CLIENT_WAIT_FOR_FRAME_DONE) &&
@@ -520,6 +543,7 @@ static void ddl_encoder_frame_run_callback(
 					ddl_handle_enc_skipframe_slice_mode(
 							ddl, eos_present);
 				else
+					status =
 					ddl_handle_enc_frame_done_slice_mode(
 							ddl, eos_present);
 			} else {
@@ -593,6 +617,8 @@ static void ddl_encoder_frame_run_callback(
 			ddl->command_channel);
 		}
 	}
+
+	return status;
 }
 
 static void get_dec_status(struct ddl_client_context *ddl,
@@ -809,7 +835,7 @@ static u32 ddl_frame_run_callback(struct ddl_context *ddl_context)
 		if (ddl->cmd_state == DDL_CMD_DECODE_FRAME)
 			return_status = ddl_decoder_frame_run_callback(ddl);
 		else if (ddl->cmd_state == DDL_CMD_ENCODE_FRAME)
-			ddl_encoder_frame_run_callback(ddl);
+			return_status = ddl_encoder_frame_run_callback(ddl);
 		else if (ddl->cmd_state == DDL_CMD_EOS)
 			return_status = ddl_eos_frame_done_callback(ddl);
 		else {
@@ -854,7 +880,7 @@ static void ddl_edfu_callback(struct ddl_context *ddl_context)
 	struct ddl_client_context *ddl;
 	u32 channel_inst_id;
 
-	DDL_MSG_MED("ddl_edfu_callback");
+	DDL_MSG_ERROR("ddl_edfu_callback");
 	vidc_1080p_get_returned_channel_inst_id(&channel_inst_id);
 	vidc_1080p_clear_returned_channel_inst_id();
 	ddl = ddl_get_current_ddl_client_for_channel_id(ddl_context,
@@ -934,6 +960,39 @@ static u32 ddl_slice_done_callback(struct ddl_context *ddl_context)
 	return return_status;
 }
 
+
+static u32 ddl_handle_mgen2axi_error(struct ddl_context *ddl_context)
+{
+	u32 axi_error_info_a;
+	u32 axi_error_info_b;
+	struct vidc_1080P_axi_status axi_a_status;
+	struct vidc_1080P_axi_status axi_b_status;
+	struct vidc_1080P_axi_ctrl axi_ctrl;
+	u32 status = false;
+
+	vidc_1080p_get_mgenaxi_error_info(&axi_error_info_a,
+		&axi_error_info_b);
+	vidc_1080p_get_mgen2axi_status(&axi_a_status,
+		&axi_b_status);
+	if (axi_a_status.axi_error_interrupt ||
+		axi_a_status.axi_watchdog_error_interrupt ||
+		axi_b_status.axi_error_interrupt ||
+		axi_b_status.axi_watchdog_error_interrupt) {
+		vidc_1080p_get_mgen2maxi_ctrl(&axi_ctrl);
+		axi_ctrl.axi_interrupt_clr = 1;
+		vidc_1080p_set_mgen2maxi_ctrl(&axi_ctrl);
+		DDL_MSG_HIGH("%s: Wait for 20ms to clear mgen2axi intr",
+			__func__);
+		usleep(20*1000);
+		axi_ctrl.axi_interrupt_clr = 0;
+		vidc_1080p_set_mgen2maxi_ctrl(&axi_ctrl);
+		vidc_1080p_get_mgen2axi_status(&axi_a_status,
+			&axi_b_status);
+		status = true;
+	}
+	return status;
+}
+
 static u32 ddl_process_intr_status(struct ddl_context *ddl_context,
 	u32 intr_status)
 {
@@ -969,7 +1028,7 @@ static u32 ddl_process_intr_status(struct ddl_context *ddl_context,
 		ddl_encoder_eos_done(ddl_context);
 	break;
 	case VIDC_1080P_RISC2HOST_CMD_ERROR_RET:
-		DDL_MSG_ERROR("CMD_ERROR_INTR");
+		DDL_MSG_HIGH("CMD_ERROR_INTR");
 		return_status = ddl_handle_core_errors(ddl_context);
 	break;
 	case VIDC_1080P_RISC2HOST_CMD_INIT_BUFFERS_RET:
@@ -977,7 +1036,12 @@ static u32 ddl_process_intr_status(struct ddl_context *ddl_context,
 			ddl_dpb_buffers_set_done_callback(ddl_context);
 	break;
 	default:
-		DDL_MSG_LOW("UNKWN_INTR");
+		return_status = ddl_handle_mgen2axi_error(ddl_context);
+		if (return_status) {
+			return_status = false;
+			DDL_MSG_ERROR("Cleared Mgen2axi interrupt");
+		} else
+			DDL_MSG_ERROR("UNKWN_INTR");
 	break;
 	}
 	return return_status;
@@ -1016,6 +1080,9 @@ void ddl_read_and_clear_interrupt(void)
 				VIDC_1080P_RISC2HOST_CMD_SLICE_DONE_RET)
 			|| (ddl_hw_response->cmd ==
 				VIDC_1080P_RISC2HOST_CMD_FRAME_DONE_RET))) {
+				vidc_sm_get_num_slices_comp(
+				&ddl->shared_mem[ddl->command_channel],
+				&encoder->num_slices_comp);
 				vidc_sm_set_encoder_slice_batch_int_ctrl(
 				&ddl->shared_mem[ddl->command_channel],
 				1);
@@ -1156,20 +1223,29 @@ static u32 ddl_decoder_output_done_callback(
 		&(decoder->dec_disp_info);
 	struct ddl_frame_data_tag *output_frame = &(ddl->output_frame);
 	struct vcd_frame_data *output_vcd_frm = &(output_frame->vcd_frm);
+	enum vidc_1080p_decode_frame frame_type = 0;
 	u32 vcd_status, free_luma_dpb = 0, disp_pict = 0, is_interlaced;
+	u32 idr_frame = 0, coded_frame = 0;
+	u32 seq_end_code_present = 0;
 	get_dec_op_done_data(dec_disp_info, decoder->output_order,
 		&output_vcd_frm->physical, &is_interlaced);
 	decoder->progressive_only = !(is_interlaced);
 	output_vcd_frm->frame = VCD_FRAME_YUV;
+	vidc_sm_get_displayed_picture_frame(&ddl->shared_mem
+		[ddl->command_channel], &disp_pict);
+	coded_frame = (disp_pict & 0x03);
+	idr_frame = (disp_pict & 0x20) >> 5;
+	if (idr_frame)
+		frame_type = VIDC_1080P_DECODE_FRAMETYPE_IDR;
+	else
+		frame_type = (disp_pict & 0x1c) >> 2;
 	if (decoder->codec.codec == VCD_CODEC_MPEG4 ||
 		decoder->codec.codec == VCD_CODEC_VC1 ||
 		decoder->codec.codec == VCD_CODEC_VC1_RCV ||
 		(decoder->codec.codec >= VCD_CODEC_DIVX_3 &&
 		decoder->codec.codec <= VCD_CODEC_XVID)) {
-		vidc_sm_get_displayed_picture_frame(&ddl->shared_mem
-		[ddl->command_channel], &disp_pict);
 		if (decoder->output_order == VCD_DEC_ORDER_DISPLAY) {
-			if (!disp_pict) {
+			if (!coded_frame) {
 				output_vcd_frm->frame = VCD_FRAME_NOTCODED;
 				vidc_sm_get_available_luma_dpb_address(
 					&ddl->shared_mem[ddl->command_channel],
@@ -1194,9 +1270,14 @@ static u32 ddl_decoder_output_done_callback(
 		DDL_MSG_ERROR("CORRUPTED_OUTPUT_BUFFER_ADDRESS");
 		ddl_hw_fatal_cb(ddl);
 	} else {
+		ddl_get_decoded_frame(output_vcd_frm, frame_type);
 		vidc_sm_get_metadata_status(&ddl->shared_mem
 			[ddl->command_channel],
 			&decoder->meta_data_exists);
+		decoder->mp2_datadump_status = 0;
+		vidc_sm_get_mp2datadump_status(&ddl->shared_mem
+			[ddl->command_channel],
+			&decoder->mp2_datadump_status);
 		if (decoder->output_order == VCD_DEC_ORDER_DISPLAY) {
 			vidc_sm_get_frame_tags(&ddl->shared_mem
 				[ddl->command_channel],
@@ -1215,6 +1296,19 @@ static u32 ddl_decoder_output_done_callback(
 				VIDC_1080P_DECODE_APPROX_CORRECT)
 				output_vcd_frm->flags |=
 					VCD_FRAME_FLAG_DATACORRUPT;
+		}
+		if (decoder->codec.codec != VCD_CODEC_H264 &&
+			decoder->codec.codec != VCD_CODEC_MPEG2 &&
+			decoder->codec.codec != VCD_CODEC_VC1)
+			output_vcd_frm->flags &= ~VCD_FRAME_FLAG_DATACORRUPT;
+		if (decoder->codec.codec == VCD_CODEC_MPEG2) {
+			vidc_sm_get_mp2common_status(&ddl->shared_mem
+				[ddl->command_channel],
+				&seq_end_code_present);
+			if (seq_end_code_present)
+				output_vcd_frm->flags |= VCD_FRAME_FLAG_EOSEQ;
+			else
+				output_vcd_frm->flags &= ~VCD_FRAME_FLAG_EOSEQ;
 		}
 		output_vcd_frm->ip_frm_tag = dec_disp_info->tag_top;
 		vidc_sm_get_picture_times(&ddl->shared_mem
@@ -1252,6 +1346,9 @@ static u32 ddl_decoder_output_done_callback(
 			decoder->frame_size =
 				 output_vcd_frm->dec_op_prop.frm_size;
 			decoder->client_frame_size = decoder->frame_size;
+			decoder->yuv_size = decoder->frame_size.width *
+						decoder->frame_size.height;
+			decoder->yuv_size += decoder->yuv_size / 2;
 			decoder->y_cb_cr_size =
 				ddl_get_yuv_buffer_size(&decoder->frame_size,
 					&decoder->buf_format,
@@ -1264,6 +1361,7 @@ static u32 ddl_decoder_output_done_callback(
 			DDL_MSG_LOW("%s y_cb_cr_size = %u "
 				"actual_output_buf_req.sz = %u"
 				"min_output_buf_req.sz = %u\n",
+				__func__,
 				decoder->y_cb_cr_size,
 				decoder->actual_output_buf_req.sz,
 				decoder->min_output_buf_req.sz);
@@ -1285,8 +1383,9 @@ static u32 ddl_decoder_output_done_callback(
 		output_frame->frm_trans_end = frame_transact_end;
 		ddl_calc_core_proc_time(__func__, DEC_OP_TIME, ddl);
 		ddl_process_decoder_metadata(ddl);
-                vidc_sm_get_aspect_ratio_info(
+		vidc_sm_get_aspect_ratio_info(
 			&ddl->shared_mem[ddl->command_channel],
+			decoder->codec.codec,
 			&output_vcd_frm->aspect_ratio_info);
 		ddl_context->ddl_callback(VCD_EVT_RESP_OUTPUT_DONE,
 			vcd_status, output_frame,
@@ -1319,6 +1418,10 @@ static u32 ddl_get_decoded_frame(struct vcd_frame_data  *frame,
 	break;
 	case VIDC_1080P_DECODE_FRAMETYPE_OTHERS:
 		frame->frame = VCD_FRAME_YUV;
+	break;
+	case VIDC_1080P_DECODE_FRAMETYPE_IDR:
+		frame->flags |= VCD_FRAME_FLAG_SYNCFRAME;
+		frame->frame = VCD_FRAME_IDR;
 	break;
 	case VIDC_1080P_DECODE_FRAMETYPE_32BIT:
 	default:
@@ -1703,7 +1806,23 @@ static void ddl_handle_enc_frame_done(struct ddl_client_context *ddl,
 	(void)ddl_get_encoded_frame(output_frame,
 		encoder->codec.codec, encoder->enc_frame_info.enc_frame
 								);
-	ddl_process_encoder_metadata(ddl);
+	if (!IS_ERR_OR_NULL(output_frame->buff_ion_handle)) {
+		msm_ion_do_cache_op(ddl_context->video_ion_client,
+			output_frame->buff_ion_handle,
+			(unsigned long *)NULL,
+			(unsigned long) output_frame->alloc_len,
+			ION_IOC_INV_CACHES);
+	}
+	if ((VIDC_1080P_ENCODE_FRAMETYPE_SKIPPED !=
+		encoder->enc_frame_info.enc_frame) &&
+		(VIDC_1080P_ENCODE_FRAMETYPE_NOT_CODED !=
+		encoder->enc_frame_info.enc_frame)) {
+		if (DDL_IS_LTR_ENABLED(encoder))
+			ddl_handle_ltr_in_framedone(ddl);
+		ddl_process_encoder_metadata(ddl);
+		encoder->ltr_control.meta_data_reqd = false;
+	}
+	encoder->ltr_control.using = false;
 	ddl_vidc_encode_dynamic_property(ddl, false);
 	ddl->input_frame.frm_trans_end = false;
 	input_buffer_address = ddl_context->dram_base_a.align_physical_addr +
@@ -1740,8 +1859,10 @@ static void ddl_handle_slice_done_slice_batch(struct ddl_client_context *ddl)
 	slice_output = (struct vidc_1080p_enc_slice_batch_out_param *)
 		(encoder->batch_frame.slice_batch_out.align_virtual_addr);
 	DDL_MSG_LOW(" after get no of slices = %d\n", num_slices_comp);
-	if (slice_output == NULL)
+	if (slice_output == NULL) {
 		DDL_MSG_ERROR(" slice_output is NULL\n");
+		return; /* Bail out */
+	}
 	encoder->slice_delivery_info.num_slices_enc += num_slices_comp;
 	if (vidc_msg_timing) {
 		ddl_calc_core_proc_time_cnt(__func__, ENC_SLICE_OP_TIME,
@@ -1765,15 +1886,20 @@ static void ddl_handle_slice_done_slice_batch(struct ddl_client_context *ddl)
 			stream_buffer_size);
 		output_frame = &(
 			encoder->batch_frame.output_frame[actual_idx].vcd_frm);
-		DDL_MSG_LOW("OutBfr: vcd_frm 0x%x frmbfr(virtual) 0x%x"
+		DDL_MSG_LOW("OutBfr: vcd_frm %p frmbfr(virtual) 0x%x"
 			"frmbfr(physical) 0x%x\n",
-			&output_frame,
-			output_frame.virtual_base_addr,
-			output_frame.physical_base_addr);
+			output_frame,
+			(u32)output_frame->virtual,
+			(u32)output_frame->physical);
 		vidc_1080p_get_encode_frame_info(&encoder->enc_frame_info);
 		vidc_sm_get_frame_tags(&ddl->shared_mem
 			[ddl->command_channel],
 			&output_frame->ip_frm_tag, &bottom_frame_tag);
+		if (!output_frame->ip_frm_tag) {
+			DDL_MSG_ERROR("%s: zero frame tag rcvd, index = %d",
+				__func__, index);
+			output_frame->ip_frm_tag = (u32)ddl->client_data;
+		}
 		ddl_get_encoded_frame(output_frame,
 				encoder->codec.codec,
 				encoder->enc_frame_info.enc_frame);
@@ -1796,7 +1922,7 @@ static void ddl_handle_slice_done_slice_batch(struct ddl_client_context *ddl)
 			0);
 }
 
-static void ddl_handle_enc_frame_done_slice_mode(
+static u32 ddl_handle_enc_frame_done_slice_mode(
 		struct ddl_client_context *ddl, u32 eos_present)
 {
 	struct ddl_context       *ddl_context = ddl->ddl_context;
@@ -1810,6 +1936,7 @@ static void ddl_handle_enc_frame_done_slice_mode(
 	u32 start_bfr_idx = 0;
 	u32 actual_idx = 0;
 	struct vcd_transc *transc;
+	u32 status = true;
 
 	DDL_MSG_LOW("%s\n", __func__);
 	vidc_sm_get_num_slices_comp(
@@ -1835,6 +1962,7 @@ static void ddl_handle_enc_frame_done_slice_mode(
 		DDL_MSG_ERROR("ERROR : %d %d\n",
 		encoder->slice_delivery_info.num_slices_enc,
 		encoder->batch_frame.num_output_frames);
+		status = false;
 	}
 	for (index = 0; index < num_slices_comp; index++) {
 		actual_idx =
@@ -1843,19 +1971,24 @@ static void ddl_handle_enc_frame_done_slice_mode(
 		DDL_MSG_LOW("Slice Info: OutBfrIndex %d SliceSize %d",
 			actual_idx,
 			slice_output->slice_info[start_bfr_idx+index]. \
-			stream_buffer_size, 0);
+			stream_buffer_size);
 		output_frame =
 		&(encoder->batch_frame.output_frame[actual_idx].vcd_frm);
-		DDL_MSG_LOW("OutBfr: vcd_frm 0x%x frmbfr(virtual) 0x%x"
+		DDL_MSG_LOW("OutBfr: vcd_frm %p frmbfr(virtual) 0x%x"
 				"frmbfr(physical) 0x%x",
-				&output_frame,
-				output_frame.virtual_base_addr,
-				output_frame.physical_base_addr);
+				output_frame,
+				(u32)output_frame->virtual,
+				(u32)output_frame->physical);
 		vidc_1080p_get_encode_frame_info(
 			&encoder->enc_frame_info);
 		vidc_sm_get_frame_tags(&ddl->shared_mem
 			[ddl->command_channel],
 			&output_frame->ip_frm_tag, &bottom_frame_tag);
+		if (!output_frame->ip_frm_tag) {
+			DDL_MSG_ERROR("%s: zero frame tag rcvd, index = %d",
+				__func__, index);
+			output_frame->ip_frm_tag = (u32)ddl->client_data;
+		}
 		ddl_get_encoded_frame(output_frame,
 				encoder->codec.codec,
 				encoder->enc_frame_info.enc_frame);
@@ -1897,6 +2030,8 @@ static void ddl_handle_enc_frame_done_slice_mode(
 				sizeof(struct ddl_frame_data_tag),
 				(u32 *) ddl, ddl->client_data);
 	}
+
+	return status;
 }
 
 static void ddl_handle_enc_skipframe_slice_mode(
@@ -1925,6 +2060,11 @@ static void ddl_handle_enc_skipframe_slice_mode(
 				&ddl->shared_mem[ddl->command_channel],
 				&output_frame->ip_frm_tag,
 				&bottom_frame_tag);
+		if (!output_frame->ip_frm_tag) {
+			DDL_MSG_ERROR("%s: zero frame tag rcvd, index = %d",
+				__func__, index);
+			output_frame->ip_frm_tag = (u32)ddl->client_data;
+		}
 		ddl_get_encoded_frame(
 				output_frame,
 				encoder->codec.codec,

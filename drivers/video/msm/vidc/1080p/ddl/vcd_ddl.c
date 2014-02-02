@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -88,7 +88,13 @@ u32 ddl_device_init(struct ddl_init_config *ddl_init_config,
 			ddl_context->dram_base_a.align_virtual_addr;
 	}
 	if (!status) {
-		ddl_context->metadata_shared_input.mem_type = DDL_MM_MEM;
+		if (res_trk_get_enable_sec_metadata()) {
+			ddl_context->metadata_shared_input.mem_type =
+				DDL_CMD_MEM;
+		} else {
+			ddl_context->metadata_shared_input.mem_type =
+				DDL_FW_MEM;
+		}
 		ptr = ddl_pmem_alloc(&ddl_context->metadata_shared_input,
 			DDL_METADATA_TOTAL_INPUTBUFSIZE,
 			DDL_LINEAR_BUFFER_ALIGN_BYTES);
@@ -164,14 +170,20 @@ u32 ddl_open(u32 **ddl_handle, u32 decoding)
 		DDL_MSG_ERROR("ddl_open:Client_trasac_failed");
 		return status;
 	}
-	ddl->shared_mem[0].mem_type = DDL_CMD_MEM;
+	if (res_trk_check_for_sec_session())
+		ddl->shared_mem[0].mem_type = DDL_CMD_MEM;
+	else
+		ddl->shared_mem[0].mem_type = DDL_FW_MEM;
 	ptr = ddl_pmem_alloc(&ddl->shared_mem[0],
 			DDL_FW_AUX_HOST_CMD_SPACE_SIZE, 0);
 	if (!ptr)
 		status = VCD_ERR_ALLOC_FAIL;
 	if (!status && ddl_context->frame_channel_depth
 		== VCD_DUAL_FRAME_COMMAND_CHANNEL) {
-		ddl->shared_mem[1].mem_type = DDL_CMD_MEM;
+		if (res_trk_check_for_sec_session())
+			ddl->shared_mem[1].mem_type = DDL_CMD_MEM;
+		else
+			ddl->shared_mem[1].mem_type = DDL_FW_MEM;
 		ptr = ddl_pmem_alloc(&ddl->shared_mem[1],
 				DDL_FW_AUX_HOST_CMD_SPACE_SIZE, 0);
 		if (!ptr) {
@@ -192,7 +204,9 @@ u32 ddl_open(u32 **ddl_handle, u32 decoding)
 		ddl->client_state = DDL_CLIENT_OPEN;
 		ddl->codec_data.hdr.decoding = decoding;
 		ddl->decoding = decoding;
-		ddl_set_default_meta_data_hdr(ddl);
+		if (!res_trk_check_for_sec_session() ||
+				res_trk_get_enable_sec_metadata())
+			ddl_set_default_meta_data_hdr(ddl);
 		ddl_set_initial_default_values(ddl);
 		*ddl_handle	= (u32 *) ddl;
 	} else {
@@ -273,6 +287,25 @@ u32 ddl_encode_start(u32 *ddl_handle, void *client_data)
 		return VCD_ERR_ILLEGAL_OP;
 	}
 	encoder = &ddl->codec_data.encoder;
+	if (DDL_IS_LTR_ENABLED(encoder)) {
+		DDL_MSG_HIGH("LTR enabled, mode %u count %u",
+			(u32)encoder->ltr_control.ltrmode.ltr_mode,
+			(u32)encoder->ltr_control.ltr_count);
+		status = ddl_allocate_ltr_list(&encoder->ltr_control);
+		if (status) {
+			DDL_MSG_ERROR("%s: allocate ltr list failed",
+				__func__);
+			return status;
+		} else {
+			ddl_clear_ltr_list(&encoder->ltr_control, false);
+		}
+		encoder->num_references_for_p_frame = 2;
+		encoder->ltr_control.callback_reqd = false;
+		encoder->ltr_control.curr_ltr_id = (u32)DDL_LTR_FRAME_START_ID;
+		DDL_MSG_HIGH("num_ref_for_p_frames %u, curr_ltr_id = %u",
+			(u32)encoder->num_references_for_p_frame,
+			(u32)encoder->ltr_control.curr_ltr_id);
+	}
 	status = ddl_allocate_enc_hw_buffers(ddl);
 	if (status)
 		return status;
@@ -287,7 +320,12 @@ u32 ddl_encode_start(u32 *ddl_handle, void *client_data)
 		DDL_MSG_ERROR("ddl_enc_start:Seq_hdr_alloc_failed");
 		return VCD_ERR_ALLOC_FAIL;
 	}
-        if (encoder->slice_delivery_info.enable) {
+	msm_ion_do_cache_op(ddl_context->video_ion_client,
+				encoder->seq_header.alloc_handle,
+				encoder->seq_header.virtual_base_addr,
+				encoder->seq_header.buffer_size,
+				ION_IOC_CLEAN_INV_CACHES);
+	if (encoder->slice_delivery_info.enable) {
 		DDL_MSG_LOW("%s: slice mode allocate memory for struct\n",
 					__func__);
 		ptr = ddl_pmem_alloc(&encoder->batch_frame.slice_batch_in,
@@ -308,7 +346,7 @@ u32 ddl_encode_start(u32 *ddl_handle, void *client_data)
 			return VCD_ERR_ALLOC_FAIL;
 		}
 	}
-        if (!ddl_take_command_channel(ddl_context, ddl, client_data))
+	if (!ddl_take_command_channel(ddl_context, ddl, client_data))
 		return VCD_ERR_BUSY;
 	ddl_vidc_channel_set(ddl);
 	return status;
@@ -457,9 +495,10 @@ u32 ddl_encode_frame(u32 *ddl_handle,
 	struct ddl_client_context *ddl =
 		(struct ddl_client_context *) ddl_handle;
 	struct ddl_context *ddl_context;
-        struct ddl_encoder_data *encoder =
+	struct ddl_encoder_data *encoder =
 		&ddl->codec_data.encoder;
-        u32 vcd_status = VCD_S_SUCCESS;
+	u32 vcd_status = VCD_S_SUCCESS;
+	DDL_MSG_LOW("%s: transc = 0x%x", __func__, (u32)ddl->client_data);
 	if (encoder->slice_delivery_info.enable) {
 		return ddl_encode_frame_batch(ddl_handle,
 					input_frame,
@@ -468,7 +507,7 @@ u32 ddl_encode_frame(u32 *ddl_handle,
 					encoder->slice_delivery_info.num_slices,
 					client_data);
 	}
-	DDL_MSG_HIGH("ddl_encode_frame");
+
 	ddl_set_core_start_time(__func__, ENC_OP_TIME);
 	ddl_context = ddl_get_context();
 	if (!DDL_IS_INITIALIZED(ddl_context)) {
