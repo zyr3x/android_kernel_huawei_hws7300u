@@ -25,9 +25,9 @@
 #include <linux/time.h>
 #endif
 
-#ifdef __KERNEL__
+
 #include <linux/ion.h>
-#endif
+
 #define MSM_CAM_IOCTL_MAGIC 'm'
 
 #define MSM_CAM_IOCTL_GET_SENSOR_INFO \
@@ -629,6 +629,8 @@ struct msm_stats_buf {
 	uint32_t status_bits;
 	unsigned long buffer;
 	int fd;
+	int length;
+	struct ion_handle *handle;
 	uint32_t frame_id;
 };
 #define MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT 0
