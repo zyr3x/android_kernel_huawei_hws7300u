@@ -20,7 +20,7 @@
 #include <mach/dma.h>
 #include <asm/mach/mmc.h>
 #include <asm/clkdev.h>
-#include <linux/msm_kgsl.h>
+#include <mach/kgsl.h>
 #include <linux/msm_rotator.h>
 #include <mach/msm_hsusb.h>
 #include "footswitch.h"
@@ -1615,7 +1615,7 @@ static struct msm_rotator_platform_data rotator_pdata = {
 #ifdef CONFIG_MSM_BUS_SCALING
 	.bus_scale_table = &rotator_bus_scale_pdata,
 #endif
-
+	.rot_iommu_split_domain = 0,
 };
 
 struct platform_device msm_rotator_device = {
@@ -2342,17 +2342,25 @@ struct msm_vidc_platform_data vidc_platform_data = {
 #ifdef CONFIG_MSM_BUS_SCALING
 	.vidc_bus_client_pdata = &vidc_bus_client_data,
 #endif
+#ifdef CONFIG_MSM_VIDC_CONTENT_PROTECTION
+	.cp_enabled = 1,
+#else
+	.cp_enabled = 0,
+#endif
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
 	.memtype = ION_CP_MM_HEAP_ID,
 	.enable_ion = 1,
+	.secure_wb_heap = 1,
 #else
 	.memtype = MEMTYPE_SMI_KERNEL,
 	.enable_ion = 0,
+	.secure_wb_heap = 0,
 #endif
 	.disable_dmx = 0,
 	.disable_fullhd = 0,
-	.cont_mode_dpb_count = 8,
-	.disable_turbo = 1
+	.disable_turbo = 1,
+	.fw_addr = 0x38000000,
+	.enable_sec_metadata = 0,
 };
 
 struct platform_device msm_device_vidc = {

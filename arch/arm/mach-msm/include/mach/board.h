@@ -382,9 +382,9 @@ struct msm_panel_common_pdata {
 	int (*vga_switch)(int select_vga);
 	int *gpio_num;
 	u32 mdp_max_clk;
-        u32 mdp_max_bw;
-        u32 mdp_bw_ab_factor;
-        u32 mdp_bw_ib_factor;
+	u32 mdp_max_bw;
+	u32 mdp_bw_ab_factor;
+	u32 mdp_bw_ib_factor;
 #ifdef CONFIG_MSM_BUS_SCALING
 	struct msm_bus_scale_pdata *mdp_bus_scale_table;
 #endif
@@ -393,6 +393,7 @@ struct msm_panel_common_pdata {
 	u32 ov1_wb_size;  /* overlay1 writeback size */
 	u32 mem_hid;
 	char cont_splash_enabled;
+	char mdp_iommu_split_domain;
 };
 
 
@@ -450,6 +451,10 @@ struct mipi_dsi_panel_platform_data {
 	struct mipi_dsi_phy_ctrl *phy_ctrl_settings;
 };
 
+struct msm_wfd_platform_data {
+	char (*wfd_check_mdp_iommu_split)(void);
+};
+
 #define PANEL_NAME_MAX_LEN 50
 struct msm_fb_platform_data {
 	int (*detect_client)(const char *name);
@@ -466,8 +471,11 @@ struct msm_hdmi_platform_data {
 	int (*enable_5v)(int on);
 	int (*core_power)(int on, int show);
 	int (*cec_power)(int on);
+	int (*panel_power)(int on);
+	int (*gpio_config)(int on);
 	int (*init_irq)(void);
 	bool (*check_hdcp_hw_support)(void);
+	int bootup_ck;
 };
 
 struct msm_i2c_platform_data {
@@ -500,11 +508,15 @@ struct msm_vidc_platform_data {
 	u32 enable_ion;
 	int disable_dmx;
 	int disable_fullhd;
+	u32 cp_enabled;
+	u32 secure_wb_heap;
+	u32 enable_sec_metadata;
 #ifdef CONFIG_MSM_BUS_SCALING
 	struct msm_bus_scale_pdata *vidc_bus_client_pdata;
 #endif
-	int cont_mode_dpb_count;
 	int disable_turbo;
+    int cont_mode_dpb_count;
+	unsigned long fw_addr;
 };
 
 #if defined(CONFIG_USB_PEHCI_HCD) || defined(CONFIG_USB_PEHCI_HCD_MODULE)

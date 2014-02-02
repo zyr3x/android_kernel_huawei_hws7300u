@@ -715,7 +715,6 @@ static struct platform_device msm_device_mdp_port0_cb0_ctx = {
 	.id = 4,
 	.dev = {
 		.parent = &msm_device_iommu_mdp0.dev,
-		.platform_data = &mdp_port0_cb0_ctx,
 	},
 };
 
@@ -724,7 +723,6 @@ static struct platform_device msm_device_mdp_port0_cb1_ctx = {
 	.id = 5,
 	.dev = {
 		.parent = &msm_device_iommu_mdp0.dev,
-		.platform_data = &mdp_port0_cb1_ctx,
 	},
 };
 
@@ -733,7 +731,6 @@ static struct platform_device msm_device_mdp_port1_cb0_ctx = {
 	.id = 6,
 	.dev = {
 		.parent = &msm_device_iommu_mdp1.dev,
-		.platform_data = &mdp_port1_cb0_ctx,
 	},
 };
 
@@ -742,7 +739,6 @@ static struct platform_device msm_device_mdp_port1_cb1_ctx = {
 	.id = 7,
 	.dev = {
 		.parent = &msm_device_iommu_mdp1.dev,
-		.platform_data = &mdp_port1_cb1_ctx,
 	},
 };
 
