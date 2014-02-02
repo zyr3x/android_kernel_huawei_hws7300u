@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -37,7 +37,7 @@ struct afe_ctl {
 
 static struct afe_ctl this_afe;
 
-static uint32_t afe_cal_addr[MAX_AUDPROC_TYPES];
+static struct acdb_cal_block afe_cal_addr[MAX_AUDPROC_TYPES];
 
 #define TIMEOUT_MS 1000
 #define Q6AFE_MAX_VOLUME 0x3FFF
@@ -331,12 +331,16 @@ static void afe_send_cal_block(int32_t path, u16 port_id)
 		goto done;
 	}
 
-	if (afe_cal_addr[path] != cal_block.cal_paddr) {
-		if (afe_cal_addr[path] != 0)
-			afe_cmd_memory_unmap_nowait(afe_cal_addr[path]);
+	if ((afe_cal_addr[path].cal_paddr != cal_block.cal_paddr) ||
+		(cal_block.cal_size > afe_cal_addr[path].cal_size)) {
+		if (afe_cal_addr[path].cal_paddr != 0)
+			afe_cmd_memory_unmap_nowait(
+				afe_cal_addr[path].cal_paddr);
+
 		afe_cmd_memory_map_nowait(cal_block.cal_paddr,
 						cal_block.cal_size);
-		afe_cal_addr[path] = cal_block.cal_paddr;
+		afe_cal_addr[path].cal_paddr = cal_block.cal_paddr;
+		afe_cal_addr[path].cal_size = cal_block.cal_size;
 	}
 
 	afe_cal.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
@@ -1526,11 +1530,13 @@ static int __init afe_init(void)
 	this_afe.apr = NULL;
 #ifdef CONFIG_DEBUG_FS
 	debugfs_afelb = debugfs_create_file("afe_loopback",
-	S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH, NULL, (void *) "afe_loopback",
+	0220, NULL, (void *) "afe_loopback",
 	&afe_debug_fops);
+
 	debugfs_afelb_gain = debugfs_create_file("afe_loopback_gain",
-	S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH, NULL, (void *) "afe_loopback_gain",
+	0220, NULL, (void *) "afe_loopback_gain",
 	&afe_debug_fops);
+
 
 #endif
 	return 0;
@@ -1546,8 +1552,9 @@ static void __exit afe_exit(void)
 		debugfs_remove(debugfs_afelb_gain);
 #endif
 	for (i = 0; i < MAX_AUDPROC_TYPES; i++) {
-		if (afe_cal_addr[i] != 0)
-			afe_cmd_memory_unmap_nowait(afe_cal_addr[i]);
+		if (afe_cal_addr[i].cal_paddr != 0)
+			afe_cmd_memory_unmap_nowait(
+				afe_cal_addr[i].cal_paddr);
 	}
 }
 

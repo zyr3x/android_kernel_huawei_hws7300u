@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -29,8 +29,6 @@
 #include <sound/control.h>
 #include <sound/q6adm.h>
 #include <asm/dma.h>
-#include <linux/memory_alloc.h>
-#include <mach/msm_subsystem_map.h>
 #include "msm-pcm-afe.h"
 #include "msm-pcm-q6.h"
 
@@ -156,6 +154,8 @@ static void pcm_afe_process_tx_pkt(uint32_t opcode,
 			}
 			case AFE_EVENT_RTPORT_STOP:
 				pr_debug("%s: event!=0\n", __func__);
+				prtd->start = 0;
+				snd_pcm_stop(substream, SNDRV_PCM_STATE_SETUP);
 				break;
 			case AFE_EVENT_RTPORT_LOW_WM:
 				pr_debug("%s: Underrun\n", __func__);
@@ -220,6 +220,8 @@ static void pcm_afe_process_rx_pkt(uint32_t opcode,
 		}
 		case AFE_EVENT_RTPORT_STOP:
 			pr_debug("%s: event!=0\n", __func__);
+			prtd->start = 0;
+			snd_pcm_stop(substream, SNDRV_PCM_STATE_SETUP);
 			break;
 		case AFE_EVENT_RTPORT_LOW_WM:
 			pr_debug("%s: Underrun\n", __func__);
@@ -442,7 +444,6 @@ static int msm_afe_mmap(struct snd_pcm_substream *substream,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct pcm_afe_info *prtd = runtime->private_data;
 	int result = 0;
-
 	pr_debug("%s\n", __func__);
 	prtd->mmap_flag = 1;
 	if (runtime->dma_addr && runtime->dma_bytes) {
