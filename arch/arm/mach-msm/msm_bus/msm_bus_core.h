@@ -36,7 +36,7 @@
 #define MSM_FAB_ERR(msg, ...) \
 
 #define INTERLEAVED_BW(fab_pdata, bw, ports) \
-	((fab_pdata->il_flag) ? msm_bus_div64((bw), (ports)) : (bw))
+	((fab_pdata->il_flag) ? msm_bus_div64((ports), (bw)) : (bw))
 #define INTERLEAVED_VAL(fab_pdata, n) \
 	((fab_pdata->il_flag) ? (n) : 1)
 
