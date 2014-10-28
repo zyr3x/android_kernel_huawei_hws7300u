@@ -116,7 +116,7 @@ static void display_panel_power(int on)
           if (!display_reg)
             return;
           rc = regulator_set_voltage(display_reg,
-          	3300000, 3300000);
+          	3000000, 3000000);
           if (rc)
           	goto out_display_reg;
           rc = regulator_enable(display_reg);
