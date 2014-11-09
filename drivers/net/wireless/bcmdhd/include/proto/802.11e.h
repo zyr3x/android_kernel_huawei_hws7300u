@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: 802.11e.h,v 1.6 2008-12-01 22:55:11 Exp $
+ * $Id: 802.11e.h 277737 2011-08-16 17:54:59Z $
  */
 
 #ifndef _802_11e_H_
@@ -110,18 +110,19 @@ typedef BWL_PRE_PACKED_STRUCT struct tspec {
 #define QBSS_LOAD_IE_LEN		5	/* QBSS Load IE length */
 #define QBSS_LOAD_AAC_OFF		3	/* AAC offset in IE */
 
-#define CAC_ADDTS_RESP_TIMEOUT		300	
+#define CAC_ADDTS_RESP_TIMEOUT		300	/* default ADDTS response timeout in ms */
 
+/* 802.11e ADDTS status code */
 #define DOT11E_STATUS_ADMISSION_ACCEPTED	0	/* TSPEC Admission accepted status */
 #define DOT11E_STATUS_ADDTS_INVALID_PARAM	1	/* TSPEC invalid parameter status */
-#define DOT11E_STATUS_ADDTS_REFUSED_NSBW	3	
-#define DOT11E_STATUS_ADDTS_REFUSED_AWHILE	47	
+#define DOT11E_STATUS_ADDTS_REFUSED_NSBW	3	/* ADDTS refused (non-sufficient BW) */
+#define DOT11E_STATUS_ADDTS_REFUSED_AWHILE	47	/* ADDTS refused but could retry later */
 
 /* 802.11e DELTS status code */
 #define DOT11E_STATUS_QSTA_LEAVE_QBSS		36	/* STA leave QBSS */
 #define DOT11E_STATUS_END_TS				37	/* END TS */
 #define DOT11E_STATUS_UNKNOWN_TS			38	/* UNKNOWN TS */
-#define DOT11E_STATUS_QSTA_REQ_TIMEOUT		39	
+#define DOT11E_STATUS_QSTA_REQ_TIMEOUT		39	/* STA ADDTS request timeout */
 
 
 /* This marks the end of a packed structure section. */
