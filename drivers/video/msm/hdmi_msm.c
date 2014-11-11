@@ -630,23 +630,16 @@ EXPORT_SYMBOL(hdmi_msm_get_io_base);
 /* Valid Pixel-Clock rates: 25.2MHz, 27MHz, 27.03MHz, 74.25MHz, 148.5MHz */
 static void hdmi_msm_setup_video_mode_lut(void)
 {
-	HDMI_SETUP_LUT(640x480p60_4_3);
-	HDMI_SETUP_LUT(720x480p60_4_3);
-	HDMI_SETUP_LUT(720x480p60_16_9);
-	HDMI_SETUP_LUT(1280x720p60_16_9);
-	HDMI_SETUP_LUT(1920x1080i60_16_9);
-	HDMI_SETUP_LUT(1440x480i60_4_3);
-	HDMI_SETUP_LUT(1440x480i60_16_9);
-	HDMI_SETUP_LUT(1920x1080p60_16_9);
-	HDMI_SETUP_LUT(720x576p50_4_3);
-	HDMI_SETUP_LUT(720x576p50_16_9);
-	HDMI_SETUP_LUT(1280x720p50_16_9);
-	HDMI_SETUP_LUT(1440x576i50_4_3);
-	HDMI_SETUP_LUT(1440x576i50_16_9);
-	HDMI_SETUP_LUT(1920x1080p50_16_9);
-	HDMI_SETUP_LUT(1920x1080p24_16_9);
-	HDMI_SETUP_LUT(1920x1080p25_16_9);
-	HDMI_SETUP_LUT(1920x1080p30_16_9);
+	/* Init video mode timings */
+	MSM_HDMI_MODES_INIT_TIMINGS(hdmi_common_supported_video_mode_lut);
+
+	/* Add all supported CEA modes to the lut */
+	MSM_HDMI_MODES_SET_SUPP_TIMINGS(
+		hdmi_common_supported_video_mode_lut, MSM_HDMI_MODES_CEA);
+
+	/* Add any other supported timings (DVI modes, etc.) */
+	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut,
+		HDMI_VFRMT_1280x1024p60_5_4);
 }
 
 #ifdef PORT_DEBUG
@@ -936,6 +929,7 @@ int hdmi_msm_process_hdcp_interrupts(void)
 			& ~((1 << 6) | (1 << 4)));
 		DEV_INFO("HDCP: AUTH_FAIL_INT received, LINK0_STATUS=0x%08x\n",
 			link_status);
+
 		if (hdmi_msm_state->full_auth_done) {
 			SWITCH_SET_HDMI_AUDIO(0, 0);
 
@@ -948,12 +942,14 @@ int hdmi_msm_process_hdcp_interrupts(void)
 			mutex_lock(&hdcp_auth_state_mutex);
 			hdmi_msm_state->full_auth_done = FALSE;
 			mutex_unlock(&hdcp_auth_state_mutex);
+
 			/* Calling reauth only when authentication
 			 * is sucessful or else we always go into
 			 * the reauth loop. Also, No need to reauthenticate
 			 * if authentication failed because of cable disconnect
 			 */
 			if (((link_status & 0xF0) >> 4) != 0x7) {
+				hdmi_msm_dump_regs("HDCP_AUTH_FAILED: ");
 				DEV_DBG("Reauthenticate From %s HDCP FAIL INT ",
 					__func__);
 				queue_work(hdmi_work_queue,
@@ -2040,6 +2036,8 @@ static int hdmi_msm_read_edid_block(int block, uint8 *edid_buf)
 {
 	int i, rc = 0;
 	int block_size = 0x80;
+	uint32 ndx;
+	const u8 *b = edid_buf;
 
 	do {
 		DEV_DBG("EDID: reading block(%d) with block-size=%d\n",
@@ -2061,6 +2059,16 @@ static int hdmi_msm_read_edid_block(int block, uint8 *edid_buf)
 
 		block_size /= 2;
 	} while (rc && (block_size >= 16));
+
+	pr_info("****EDID : [%d] block****\n", block);
+	for (ndx = 0; ndx < 0x80; ndx += 16)
+		pr_info("EDID[%02x-%02x] %02x %02x %02x %02x  "
+			"%02x %02x %02x %02x    %02x %02x %02x %02x  "
+			"%02x %02x %02x %02x\n", ndx, ndx+15,
+			b[ndx+0], b[ndx+1], b[ndx+2], b[ndx+3],
+			b[ndx+4], b[ndx+5], b[ndx+6], b[ndx+7],
+			b[ndx+8], b[ndx+9], b[ndx+10], b[ndx+11],
+			b[ndx+12], b[ndx+13], b[ndx+14], b[ndx+15]);
 
 	return rc;
 }
@@ -2391,7 +2399,7 @@ static int hdcp_authentication_part1(void)
 			[7:0] LINK0_AKSV_1 */
 		/* LINK0_AINFO	= 0x2 FEATURE 1.1 on.
 		 *		= 0x0 FEATURE 1.1 off*/
-		HDMI_OUTP(0x0148, 0x0);
+		HDMI_OUTP(0x0148, 0x2 << 8);
 
 		/* 0x012C HDCP_ENTROPY_CTRL0
 			[31:0] BITS_OF_INFLUENCE_0 */
@@ -2619,11 +2627,12 @@ static int hdcp_authentication_part1(void)
 		if (!timeout_count) {
 			ret = -ETIMEDOUT;
 			is_match = HDMI_INP(0x011C) & BIT(12);
+			if (!is_match) {
 			DEV_ERR("%s(%d): timedout, Link0=<%s>\n", __func__,
 			  __LINE__,
 			  is_match ? "RI_MATCH" : "No RI Match INTR in time");
-			if (!is_match)
 				goto error;
+			}
 		}
 
 		/* 0x011C HDCP_LINK0_STATUS
@@ -3090,7 +3099,7 @@ static void hdmi_msm_video_setup(int video_format)
 	uint32 end_h     = 0;
 	uint32 start_v   = 0;
 	uint32 end_v     = 0;
-	const struct hdmi_disp_mode_timing_type *timing =
+	const struct msm_hdmi_mode_timing_info *timing =
 		hdmi_common_get_supported_mode(video_format);
 
 	/* timing register setup */
@@ -3196,7 +3205,7 @@ static void hdmi_msm_audio_acr_setup(boolean enabled, int video_format,
 	acr_pck_ctrl_reg &= ~(3 << 4);
 
 	if (enabled) {
-		const struct hdmi_disp_mode_timing_type *timing =
+		const struct msm_hdmi_mode_timing_info *timing =
 			hdmi_common_get_supported_mode(video_format);
 		const struct hdmi_msm_audio_arcs *audio_arc =
 			&hdmi_msm_audio_acr_lut[0];
@@ -4161,8 +4170,8 @@ static void hdmi_msm_turn_on(void)
 		&& (i--)) {
 		audio_pkt_ctrl = HDMI_INP_ND(0x0020);
 		audio_cfg = HDMI_INP_ND(0x01D0);
-		DEV_DBG("%d times :: HDMI AUDIO PACKET is %08x and "
-			"AUDIO CFG is %08x", i, audio_pkt_ctrl, audio_cfg);
+		DEV_DBG("%s() %d times :: HDMI AUDIO PACKET is %08x and "
+			"AUDIO CFG is %08x", __func__, i, audio_pkt_ctrl, audio_cfg);
 		msleep(20);
 	}
 
