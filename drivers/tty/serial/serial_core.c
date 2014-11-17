@@ -2010,7 +2010,6 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
 		 * We need this change.
 		 *
 		 */
-
 		if (console_suspend_enabled)
 			uart_change_pm(state, 0);
 		uport->ops->set_termios(uport, &termios, NULL);
@@ -2333,7 +2332,6 @@ void uart_unregister_driver(struct uart_driver *drv)
 	tty_unregister_driver(p);
 	put_tty_driver(p);
 	kfree(drv->state);
-	drv->state = NULL;
 	drv->tty_driver = NULL;
 }
 
