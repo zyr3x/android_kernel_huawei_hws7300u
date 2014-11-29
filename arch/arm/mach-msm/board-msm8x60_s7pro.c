@@ -4184,6 +4184,7 @@ static int bluetooth_power(int bPowerOn)
 	return 0;
 }
 
+extern void bluesleep_setup_uart_port(struct platform_device *uart_dev);
 static void __init msm8x60_bt_power_init(void)
 {
     int rc;
@@ -4206,6 +4207,7 @@ static void __init msm8x60_bt_power_init(void)
     }
 
     printk(KERN_DEBUG "Bluetooth power switch: initialized\n");
+    bluesleep_setup_uart_port(&msm_device_uart_dm1);
 exit:
 	return;
 }
