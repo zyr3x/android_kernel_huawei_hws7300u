@@ -4101,6 +4101,8 @@ static struct platform_device *rumi_sim_devices[] __initdata = {
 #endif
 	&msm_fb_device,
 	&msm_kgsl_3d0,
+	&msm_kgsl_2d0,
+	&msm_kgsl_2d1,
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
 	&hdmi_msm_device,
 #endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL */
@@ -4546,6 +4548,8 @@ static struct platform_device *surf_devices[] __initdata = {
 #endif
 	&msm_fb_device,
 	&msm_kgsl_3d0,
+        &msm_kgsl_2d0,
+	&msm_kgsl_2d1,
         &lcdc_s7Pro_panel_device,
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
 	&hdmi_msm_device,
@@ -8581,6 +8585,8 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 				ARRAY_SIZE(msm_rpmrs_levels)));
 	if (msm_xo_init())
 		pr_err("Failed to initialize XO votes\n");
+
+	msm8x60_check_2d_hardware();
 
 	/* Change SPM handling of core 1 if PMM 8160 is present. */
 	soc_platform_version = socinfo_get_platform_version();
