@@ -40,6 +40,10 @@
 #endif
 #include <linux/slab.h>
 
+#ifdef CONFIG_TOUCH_WAKE
+#include <linux/touch_wake.h>
+#endif
+
 #define BTN_F19 BTN_0
 #define BTN_F30 BTN_0
 #define SCROLL_ORIENTATION REL_Y
@@ -51,6 +55,9 @@ static int power_reset_enable = 1 ;
 /*current power up reset times*/
 static int power_reset_cnt = 0 ;
 static struct workqueue_struct *t1320_wq_reset;
+#ifdef CONFIG_TOUCH_WAKE
+static struct t1320 * touchwake_data;
+#endif
 #define GPIO_3V3_EN             (130)  
 #define GPIO_CTP_INT   			(140)
 #define GPIO_CTP_RESET       	(139)
@@ -1466,7 +1473,7 @@ static void add_sample(struct f11_finger_data *finger, int status, int x, int y,
 static void report_finger(struct t1320 *ts, struct f11_finger_data *finger)
 {
 	finger->dirty = 0;
-	if (finger->status) {
+        if (finger->status) {
 #ifdef CONFIG_SYNA_MT
 		input_report_abs(ts->input_dev, ABS_MT_POSITION_X, finger->x_avg);
 		input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, finger->y_avg);
@@ -1614,6 +1621,9 @@ static void t1320_work_func(struct work_struct *work)
 					&ts->data[ts->f30.data_offset],
 					ts->f30.points_supported, BTN_F30);
 		}
+#ifdef CONFIG_TOUCH_WAKE
+                touch_press();
+#endif
 		input_sync(ts->input_dev);
 #ifdef CONFIG_DEBUG_T1320_FIRMWARE
 		if ( 1 == flag_enable_ta){
@@ -1784,7 +1794,141 @@ static struct device_attribute t1320_dev_attr_enable = {
        .store = t1320_enable_store
 };
 
-static int t1320_probe(struct i2c_client *client, 
+static int t1320_remove(struct i2c_client *client)
+{
+struct t1320 *ts = i2c_get_clientdata(client);
+
+	unregister_early_suspend(&ts->early_suspend);
+
+	if (ts->use_irq)
+		free_irq(client->irq, ts);
+	else
+		hrtimer_cancel(&ts->timer);
+
+	hrtimer_cancel(&ts->timer_reset);
+
+	input_unregister_device(ts->input_dev);
+
+    if (ts->exit_platform_hw)
+		ts->exit_platform_hw();
+
+	kfree(ts);
+
+	return 0;
+}
+
+static int t1320_suspend(struct i2c_client *client, pm_message_t mesg)
+{
+	struct t1320 *ts = i2c_get_clientdata(client);
+    int ret=0;
+
+	hrtimer_cancel(&ts->timer_reset);
+	 /*disable power reset when system suspend */
+	power_reset_enable = 0 ;
+
+    /*Enter sleep mode*/
+    ret = i2c_smbus_read_byte_data(client,f01_rmi_ctrl0);
+    ret = (ret | 1) & (~(1 << 1)) ;
+    i2c_smbus_write_byte_data(client,f01_rmi_ctrl0,ret);
+    t1320_attn_clear(ts);
+    t1320_disable(ts);
+    if (ts->use_irq)
+        free_irq(client->irq, ts);
+        if(0 == is_upgrade_firmware){
+          ts->chip_poweroff() ;
+	   msm_gpiomux_put(GPIO_3V3_EN);
+          msm_gpiomux_put(GPIO_CTP_INT);
+	   msm_gpiomux_put(GPIO_CTP_RESET);
+       }
+	return 0;
+}
+
+static int t1320_resume(struct i2c_client *client)
+{
+	struct t1320 *ts = i2c_get_clientdata(client);
+    /* begin: add by liyaobing l00169718 20110210 for t1320 sleep mode */
+    int ret=0;
+    /* end: add by liyaobing l00169718 20110210 for t1320 sleep mode */
+	 if(0 == is_upgrade_firmware){
+    /*since  will poweroff touchscreen  when system enter suspned,it is possible poweroff touchscreen here that
+       will cause update firmware fail. so reading register of touchscreen ,if fail poweron touchscreen again */
+	    if(i2c_smbus_read_byte_data(g_client,0x00) < 0){
+	        msm_gpiomux_get(GPIO_3V3_EN);
+	        msm_gpiomux_get(GPIO_CTP_INT);
+	        msm_gpiomux_get(GPIO_CTP_RESET);
+	        ts->chip_poweron() ;
+    	    }
+	 }
+    if (client->irq) {
+		printk(KERN_INFO "Requesting IRQ...\n");
+		ret = request_irq(client->irq, t1320_irq_handler,
+				IRQF_TRIGGER_LOW,  client->name, ts);
+
+		if(ret) {
+			printk(KERN_ERR "Failed to request IRQ!ret = %d\n", ret);
+		}else {
+			printk(KERN_INFO "Set IRQ Success!\n");
+            		ts->use_irq = 1;
+		}
+
+	}
+    t1320_attn_clear(ts);
+
+    /*begin: add by liyaobing l00169718 20110210 for t1320 sleep mode */
+    /*Enter normal mode*/
+    ret = i2c_smbus_read_byte_data(client,f01_rmi_ctrl0);
+    ret &=  ~(0x03);
+    i2c_smbus_write_byte_data(client,f01_rmi_ctrl0,ret);
+	/*end: add by liyaobing l00169718 20110210 for t1320 sleep mode */
+
+	 /*enable power reset when system resume */
+	power_reset_enable = 1 ;
+	hrtimer_start(&ts->timer_reset, ktime_set(2, 0), HRTIMER_MODE_REL);
+	i2c_smbus_write_byte_data(client, f11_rmi_ctrl0 + 2, 0x3);
+	i2c_smbus_write_byte_data(client, f11_rmi_ctrl0 + 3, 0x3);
+	return 0;
+}
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static void t1320_early_suspend(struct early_suspend *h)
+{
+#ifndef CONFIG_TOUCH_WAKE
+	struct t1320 *ts;
+	ts = container_of(h, struct t1320, early_suspend);
+	t1320_suspend(ts->client, PMSG_SUSPEND);
+#endif
+}
+
+static void t1320_late_resume(struct early_suspend *h)
+{
+#ifndef CONFIG_TOUCH_WAKE
+        struct t1320 *ts;
+	ts = container_of(h, struct t1320, early_suspend);
+	t1320_resume(ts->client);
+#endif
+}
+#endif
+
+#ifdef CONFIG_TOUCH_WAKE
+
+       void touchscreen_disable(void)
+{
+    struct t1320 *ts = touchwake_data;
+        t1320_suspend(ts->client, PMSG_SUSPEND);
+        return;
+}
+EXPORT_SYMBOL(touchscreen_disable);
+
+       void touchscreen_enable(void)
+{
+        struct t1320 *ts = touchwake_data;
+            t1320_resume(ts->client);
+        return;
+}
+EXPORT_SYMBOL(touchscreen_enable);
+#endif
+
+static int t1320_probe(struct i2c_client *client,
     							const struct i2c_device_id *id)
 {
 	int i;
@@ -1796,8 +1940,8 @@ static int t1320_probe(struct i2c_client *client,
     /* end: added by liyaobing 00169718 for MMI test 20110105 */
 	printk(KERN_ERR "t1320 device %s at $%02X...\n", client->name, client->addr);
 
-        g_client = client;  
-		
+        g_client = client;
+
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		printk(KERN_ERR "%s: need I2C_FUNC_I2C\n", __func__);
 		ret = -ENODEV;
@@ -1805,22 +1949,22 @@ static int t1320_probe(struct i2c_client *client,
 	}
 
 
-	ts = (struct t1320 *)client->dev.platform_data; 
+	ts = (struct t1320 *)client->dev.platform_data;
 	INIT_WORK(&ts->work, t1320_work_func);
 	INIT_WORK(&ts->work_reset, t1320_work_reset_func);
 	ts->client = client;
 	ts->client ->adapter->retries = 3 ;
 	i2c_set_clientdata(client, ts);
-    
+
 	if (ts->init_platform_hw) {
 		if ((ts->init_platform_hw()) < 0)
 	        goto init_platform_failed;
     }
-    
-    mdelay(50); 
+
+    mdelay(50);
 
 	ret = t1320_attn_clear(ts);
-	if (!ret) 
+	if (!ret)
 		goto err_pdt_read_failed;
 
 	ret = t1320_read_pdt(ts);
@@ -1866,27 +2010,27 @@ static int t1320_probe(struct i2c_client *client,
 			input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MINOR, 0, 0xF, 0, 0);
 			input_set_abs_params(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0, 0xFF, 0, 0);
 #endif
-#ifdef CONFIG_SYNA_MULTIFINGER			
+#ifdef CONFIG_SYNA_MULTIFINGER
 			/*  multiple fingers for software built prior to 2.6.31 - uses non-standard input.h file. */
 			input_set_abs_params(ts->input_dev, ABS_X_FINGER(i), 0, ts->f11_max_x, 0, 0);
 			input_set_abs_params(ts->input_dev, ABS_Y_FINGER(i), 0, ts->f11_max_y, 0, 0);
 			input_set_abs_params(ts->input_dev, ABS_Z_FINGER(i), 0, 0xFF, 0, 0);
 #endif
 		}
-        
+
 		if (ts->hasEgrPalmDetect)
 			set_bit(BTN_DEAD, ts->input_dev->keybit);
 		if (ts->hasEgrFlick) {
 			set_bit(REL_X, ts->input_dev->keybit);
 			set_bit(REL_Y, ts->input_dev->keybit);
 		}
-        
+
 		if (ts->hasEgrSingleTap)
 			set_bit(BTN_TOUCH, ts->input_dev->keybit);
 		if (ts->hasEgrDoubleTap)
 			set_bit(BTN_TOOL_DOUBLETAP, ts->input_dev->keybit);
 	}
-    
+
 	if (ts->hasF19) {
 		set_bit(BTN_DEAD, ts->input_dev->keybit);
 #ifdef CONFIG_SYNA_BUTTONS
@@ -1902,7 +2046,7 @@ static int t1320_probe(struct i2c_client *client,
 		set_bit(SCROLL_ORIENTATION, ts->input_dev->relbit);
 #endif
 	}
-    
+
 	if (ts->hasF30) {
 		for (i = 0; i < ts->f30.points_supported; ++i) {
 			set_bit(BTN_F30 + i, ts->input_dev->keybit);
@@ -1915,7 +2059,7 @@ static int t1320_probe(struct i2c_client *client,
 				IRQF_TRIGGER_LOW, client->name, ts);
 
 		if(ret) {
-			printk(KERN_ERR "Failed to request IRQ!ret = %d\n", ret);          		
+			printk(KERN_ERR "Failed to request IRQ!ret = %d\n", ret);
 		}else {
 			printk(KERN_INFO "Set IRQ Success!\n");
             		ts->use_irq = 1;
@@ -1960,9 +2104,14 @@ static int t1320_probe(struct i2c_client *client,
     register_early_suspend(&ts->early_suspend);
     /* end: add by liyaobing l00169718 20110210 for t1320 sleep mode */
 	#endif
+#ifdef CONFIG_TOUCH_WAKE
+        touchwake_data = ts;
+        if (touchwake_data == NULL)
+            pr_err("[TOUCHWAKE] Failed to set touchwake_data\n");
+#endif
     /* start: added by liyaobing 00169718 for MMI test 20110105 */
     kobj = kobject_create_and_add("cap_touchscreen", NULL);
-  	if (kobj == NULL) {	
+  	if (kobj == NULL) {
 		printk(KERN_ERR "kobject_create_and_add error\n" );
 		goto err_input_register_device_failed;
 	}
@@ -1978,7 +2127,7 @@ static int t1320_probe(struct i2c_client *client,
 		if (init_filter_sysfs() != 0)
 			goto err_input_register_device_failed;
 
-#ifdef CONFIG_UPDATE_T1320_FIRMWARE  
+#ifdef CONFIG_UPDATE_T1320_FIRMWARE
          ts_firmware_file();
 	 t1320_tm1771_read_PDT(g_client);
 #endif
@@ -2006,117 +2155,6 @@ init_platform_failed:
 err_check_functionality_failed:
 	return ret;
 }
-
-static int t1320_remove(struct i2c_client *client)
-{
-struct t1320 *ts = i2c_get_clientdata(client);
-
-	unregister_early_suspend(&ts->early_suspend);
-
-	if (ts->use_irq)
-		free_irq(client->irq, ts);
-	else
-		hrtimer_cancel(&ts->timer);
-
-	hrtimer_cancel(&ts->timer_reset);
-
-	input_unregister_device(ts->input_dev);
-   
-    if (ts->exit_platform_hw)
-		ts->exit_platform_hw();
-    
-	kfree(ts);
-    
-	return 0;
-}
-
-static int t1320_suspend(struct i2c_client *client, pm_message_t mesg)
-{
-	struct t1320 *ts = i2c_get_clientdata(client);
-    int ret=0;
-	
-	hrtimer_cancel(&ts->timer_reset);
-	 /*disable power reset when system suspend */
-	power_reset_enable = 0 ;
-
-    /*Enter sleep mode*/
-    ret = i2c_smbus_read_byte_data(client,f01_rmi_ctrl0);
-    ret = (ret | 1) & (~(1 << 1)) ;
-    i2c_smbus_write_byte_data(client,f01_rmi_ctrl0,ret);
-    t1320_attn_clear(ts);
-    t1320_disable(ts);
-    if (ts->use_irq)
-        free_irq(client->irq, ts);
-        if(0 == is_upgrade_firmware){
-          ts->chip_poweroff() ; 
-	   msm_gpiomux_put(GPIO_3V3_EN);
-          msm_gpiomux_put(GPIO_CTP_INT);   
-	   msm_gpiomux_put(GPIO_CTP_RESET);  
-       }
-	return 0;
-}
-
-static int t1320_resume(struct i2c_client *client)
-{
-	struct t1320 *ts = i2c_get_clientdata(client);
-    /* begin: add by liyaobing l00169718 20110210 for t1320 sleep mode */
-    int ret=0;
-    /* end: add by liyaobing l00169718 20110210 for t1320 sleep mode */
-	 if(0 == is_upgrade_firmware){
-    /*since  will poweroff touchscreen  when system enter suspned,it is possible poweroff touchscreen here that
-       will cause update firmware fail. so reading register of touchscreen ,if fail poweron touchscreen again */
-	    if(i2c_smbus_read_byte_data(g_client,0x00) < 0){
-	        msm_gpiomux_get(GPIO_3V3_EN);
-	        msm_gpiomux_get(GPIO_CTP_INT);   
-	        msm_gpiomux_get(GPIO_CTP_RESET);  
-	        ts->chip_poweron() ; 
-    	    }  
-	 }
-    if (client->irq) {
-		printk(KERN_INFO "Requesting IRQ...\n");
-		ret = request_irq(client->irq, t1320_irq_handler,
-				IRQF_TRIGGER_LOW,  client->name, ts);
-
-		if(ret) {
-			printk(KERN_ERR "Failed to request IRQ!ret = %d\n", ret);          		
-		}else {
-			printk(KERN_INFO "Set IRQ Success!\n");
-            		ts->use_irq = 1;
-		}
-
-	}
-    t1320_attn_clear(ts);
-
-    /*begin: add by liyaobing l00169718 20110210 for t1320 sleep mode */
-    /*Enter normal mode*/
-    ret = i2c_smbus_read_byte_data(client,f01_rmi_ctrl0);
-    ret &=  ~(0x03);
-    i2c_smbus_write_byte_data(client,f01_rmi_ctrl0,ret);
-	/*end: add by liyaobing l00169718 20110210 for t1320 sleep mode */
-
-	 /*enable power reset when system resume */
-	power_reset_enable = 1 ;
-	hrtimer_start(&ts->timer_reset, ktime_set(2, 0), HRTIMER_MODE_REL);
-	i2c_smbus_write_byte_data(client, f11_rmi_ctrl0 + 2, 0x3);
-	i2c_smbus_write_byte_data(client, f11_rmi_ctrl0 + 3, 0x3);
-	return 0;
-}
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void t1320_early_suspend(struct early_suspend *h)
-{
-	struct t1320 *ts;
-	ts = container_of(h, struct t1320, early_suspend);
-	t1320_suspend(ts->client, PMSG_SUSPEND);
-}
-
-static void t1320_late_resume(struct early_suspend *h)
-{
-	struct t1320 *ts;
-	ts = container_of(h, struct t1320, early_suspend);
-	t1320_resume(ts->client);
-}
-#endif
 
 static struct i2c_device_id t1320_id[]={
 	{"t1320",0},
