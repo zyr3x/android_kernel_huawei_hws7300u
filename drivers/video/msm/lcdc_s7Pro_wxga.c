@@ -747,10 +747,10 @@ static int __init lcdc_chimei_lvds_panel_init(void)
 	 */
     pinfo->lcdc.h_back_porch  = 96;
     pinfo->lcdc.h_front_porch = 0;
-    pinfo->lcdc.h_pulse_width = 64;
+    pinfo->lcdc.h_pulse_width = 88;
     pinfo->lcdc.v_back_porch  = 7;
     pinfo->lcdc.v_front_porch = 0;
-    pinfo->lcdc.v_pulse_width = 16;
+    pinfo->lcdc.v_pulse_width = 22;
     pinfo->lcdc.border_clr = 0;
 	pinfo->lcdc.underflow_clr = 0x00;//0xff;
 	pinfo->lcdc.hsync_skew = 0;
