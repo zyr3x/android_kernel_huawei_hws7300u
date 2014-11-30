@@ -95,6 +95,7 @@
 #include "rpm_resources.h"
 #include "acpuclock.h"
 #include "pm-boot.h"
+#include <linux/msm_tsens.h>
 
 #include <linux/ion.h>
 #include <mach/ion.h>
@@ -4073,9 +4074,11 @@ exit:
 }
 #endif
 
-static struct platform_device msm_tsens_device = {
-	.name   = "tsens-tm",
-	.id = -1,
+static struct tsens_platform_data s7pro_tsens_pdata = {
+        .tsens_factor = 1000,
+        .hw_type = MSM_8660,
+        .tsens_num_sensor = 6,
+        .slope = 702,
 };
 
 static struct platform_device *rumi_sim_devices[] __initdata = {
@@ -4613,7 +4616,6 @@ static struct platform_device *surf_devices[] __initdata = {
 	&msm_device_rng,
 #endif
 
-	&msm_tsens_device,
 	&msm_rpm_device,
 #ifdef CONFIG_ION_MSM
 	&ion_dev,
@@ -8573,6 +8575,8 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 	};
 #endif
 	pmic_reset_irq = PM8058_IRQ_BASE + PM8058_RESOUT_IRQ;
+
+        msm_tsens_early_init(&s7pro_tsens_pdata);
 
 	/*
 	 * Initialize RPM first as other drivers and devices may need
