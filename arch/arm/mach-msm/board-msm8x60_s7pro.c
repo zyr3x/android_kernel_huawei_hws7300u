@@ -34,7 +34,6 @@
 #include <linux/i2c/sx150x.h>
 #include <linux/smsc911x.h>
 #include <linux/spi/spi.h>
-#include <linux/i2c/isa1200.h>
 #include <linux/dma-mapping.h>
 #include <linux/i2c/bq27520.h>
 
@@ -1189,145 +1188,6 @@ static struct platform_device qcedev_device = {
 	.dev		= {
 		.coherent_dma_mask = DMA_BIT_MASK(32),
 		.platform_data = &qcedev_ce_hw_suppport,
-	},
-};
-#endif
-
-#if defined(CONFIG_HAPTIC_ISA1200) || \
-		defined(CONFIG_HAPTIC_ISA1200_MODULE)
-
-static const char *vregs_isa1200_name[] = {
-	"8058_s3",
-	"8901_l4",
-};
-
-static const int vregs_isa1200_val[] = {
-	1800000,/* uV */
-	2600000,
-};
-static struct regulator *vregs_isa1200[ARRAY_SIZE(vregs_isa1200_name)];
-static struct msm_xo_voter *xo_handle_a1;
-
-static int isa1200_power(int vreg_on)
-{
-	int i, rc = 0;
-
-	for (i = 0; i < ARRAY_SIZE(vregs_isa1200_name); i++) {
-		rc = vreg_on ? regulator_enable(vregs_isa1200[i]) :
-			regulator_disable(vregs_isa1200[i]);
-		if (rc < 0) {
-			pr_err("%s: vreg %s %s failed (%d)\n",
-				__func__, vregs_isa1200_name[i],
-				vreg_on ? "enable" : "disable", rc);
-			goto vreg_fail;
-		}
-	}
-
-	rc = vreg_on ? msm_xo_mode_vote(xo_handle_a1, MSM_XO_MODE_ON) :
-			msm_xo_mode_vote(xo_handle_a1, MSM_XO_MODE_OFF);
-	if (rc < 0) {
-		pr_err("%s: failed to %svote for TCXO A1 buffer%d\n",
-				__func__, vreg_on ? "" : "de-", rc);
-		goto vreg_fail;
-	}
-	return 0;
-
-vreg_fail:
-	while (i--)
-		!vreg_on ? regulator_enable(vregs_isa1200[i]) :
-			regulator_disable(vregs_isa1200[i]);
-	return rc;
-}
-
-static int isa1200_dev_setup(bool enable)
-{
-	int i, rc;
-
-	if (enable == true) {
-		for (i = 0; i < ARRAY_SIZE(vregs_isa1200_name); i++) {
-			vregs_isa1200[i] = regulator_get(NULL,
-						vregs_isa1200_name[i]);
-			if (IS_ERR(vregs_isa1200[i])) {
-				pr_err("%s: regulator get of %s failed (%ld)\n",
-					__func__, vregs_isa1200_name[i],
-					PTR_ERR(vregs_isa1200[i]));
-				rc = PTR_ERR(vregs_isa1200[i]);
-				goto vreg_get_fail;
-			}
-			rc = regulator_set_voltage(vregs_isa1200[i],
-				vregs_isa1200_val[i], vregs_isa1200_val[i]);
-			if (rc) {
-				pr_err("%s: regulator_set_voltage(%s) failed\n",
-					__func__, vregs_isa1200_name[i]);
-				goto vreg_get_fail;
-			}
-		}
-
-		rc = gpio_request(GPIO_HAP_SHIFT_LVL_OE, "haptics_shft_lvl_oe");
-		if (rc) {
-			pr_err("%s: unable to request gpio %d (%d)\n",
-					__func__, GPIO_HAP_SHIFT_LVL_OE, rc);
-			goto vreg_get_fail;
-		}
-
-		rc = gpio_direction_output(GPIO_HAP_SHIFT_LVL_OE, 1);
-		if (rc) {
-			pr_err("%s: Unable to set direction\n", __func__);;
-			goto free_gpio;
-		}
-
-		xo_handle_a1 = msm_xo_get(MSM_XO_TCXO_A1, "isa1200");
-		if (IS_ERR(xo_handle_a1)) {
-			rc = PTR_ERR(xo_handle_a1);
-			pr_err("%s: failed to get the handle for A1(%d)\n",
-							__func__, rc);
-			goto gpio_set_dir;
-		}
-	} else {
-		gpio_set_value(GPIO_HAP_SHIFT_LVL_OE, 0);
-		gpio_free(GPIO_HAP_SHIFT_LVL_OE);
-
-		for (i = 0; i < ARRAY_SIZE(vregs_isa1200_name); i++)
-			regulator_put(vregs_isa1200[i]);
-
-		msm_xo_put(xo_handle_a1);
-	}
-
-	return 0;
-gpio_set_dir:
-	gpio_set_value(GPIO_HAP_SHIFT_LVL_OE, 0);
-free_gpio:
-	gpio_free(GPIO_HAP_SHIFT_LVL_OE);
-vreg_get_fail:
-	while (i)
-		regulator_put(vregs_isa1200[--i]);
-	return rc;
-}
-
-#define PMIC_GPIO_HAP_ENABLE   18  /* PMIC GPIO Number 19 */
-#define PMIC_GPIO_HAP_LDO_ENABLE   5  /* PMIC GPIO Number 6 */
-static struct isa1200_platform_data isa1200_1_pdata = {
-	.name = "vibrator",
-	.power_on = isa1200_power,
-	.dev_setup = isa1200_dev_setup,
-	/*gpio to enable haptic*/
-	.hap_en_gpio = PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_HAP_ENABLE),
-	.hap_len_gpio = PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_HAP_LDO_ENABLE),
-	.max_timeout = 15000,
-	.mode_ctrl = PWM_GEN_MODE,
-	.pwm_fd = {
-		.pwm_div = 256,
-	},
-	.is_erm = false,
-	.smart_en = true,
-	.ext_clk_en = true,
-	.chip_en = 1,
-};
-
-static struct i2c_board_info msm_isa1200_board_info[] = {
-	{
-		I2C_BOARD_INFO("isa1200_1", 0x90>>1),
-		.platform_data = &isa1200_1_pdata,
 	},
 };
 #endif
@@ -5209,20 +5069,6 @@ static int pm8058_gpios_init(void)
 		},
 	};
 
-#if defined(CONFIG_HAPTIC_ISA1200) || \
-			defined(CONFIG_HAPTIC_ISA1200_MODULE)
-	struct pm_gpio en_hap_gpio_cfg = {
-		.direction      = PM_GPIO_DIR_OUT,
-		.pull           = PM_GPIO_PULL_NO,
-		.out_strength   = PM_GPIO_STRENGTH_HIGH,
-		.function       = PM_GPIO_FUNC_NORMAL,
-		.inv_int_pol    = 0,
-		.vin_sel        = 2,
-		.output_buffer  = PM_GPIO_OUT_BUF_CMOS,
-		.output_value   = 0,
-	};
-#endif
-
 #if defined(CONFIG_PMIC8058_OTHC) || defined(CONFIG_PMIC8058_OTHC_MODULE) || \
      defined(CONFIG_PMIC8058_OTHC_S7PRO) || defined(CONFIG_PMIC8058_OTHC_S7PRO_MODULE)
 	struct pm8058_gpio_cfg line_in_gpio_cfg = {
@@ -5235,27 +5081,6 @@ static int pm8058_gpios_init(void)
 				.inv_int_pol    = 0,
 			}
 	};
-#endif
-
-#if defined(CONFIG_HAPTIC_ISA1200) || \
-			defined(CONFIG_HAPTIC_ISA1200_MODULE)
-	if (machine_is_msm8x60_fluid()) {
-		rc = pm8xxx_gpio_config(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_HAP_ENABLE),
-			&en_hap_gpio_cfg);
-		if (rc < 0) {
-			pr_err("%s: pmic haptics gpio config failed\n",
-							__func__);
-		}
-		rc = pm8xxx_gpio_config(
-			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_HAP_LDO_ENABLE),
-			&en_hap_gpio_cfg);
-		if (rc < 0) {
-			pr_err("%s: pmic haptics ldo gpio config failed\n",
-							__func__);
-		}
-
-	}
 #endif
 
 #if defined(CONFIG_PMIC8058_OTHC) || defined(CONFIG_PMIC8058_OTHC_MODULE)  || \
@@ -6033,15 +5858,6 @@ static struct i2c_registry msm8x60_i2c_devices[] __initdata = {
 		MSM_GSBI8_QUP_I2C_BUS_ID,
 		isl_charger_i2c_info,
 		ARRAY_SIZE(isl_charger_i2c_info),
-	},
-#endif
-#if defined(CONFIG_HAPTIC_ISA1200) || \
-		defined(CONFIG_HAPTIC_ISA1200_MODULE)
-	{
-		I2C_FLUID,
-		MSM_GSBI8_QUP_I2C_BUS_ID,
-		msm_isa1200_board_info,
-		ARRAY_SIZE(msm_isa1200_board_info),
 	},
 #endif
 	{
