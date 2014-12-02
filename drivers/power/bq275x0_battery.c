@@ -27,10 +27,10 @@
 #include <asm/unaligned.h>
 #include <linux/interrupt.h>
 #include <asm/irq.h>
-#include <linux/module.h> 
+#include <linux/module.h>
 #include <linux/i2c/bq275x0_battery.h>
 #include <linux/io.h>
-#include <linux/uaccess.h> 
+#include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <linux/fs.h>
 #include <linux/fcntl.h>
@@ -38,7 +38,7 @@
 #include <linux/slab.h>
 #define DRIVER_VERSION			"1.0.0"
 
-//#define COULOMETER_VERSION  0xA6    
+//#define COULOMETER_VERSION  0xA6
 
 #define BQ275x0_REG_TEMP	0x06
 #define BQ275x0_REG_VOLT	0x08
@@ -57,9 +57,9 @@
 /* zhouhenglin add for Firmware upgrade 20110117 begine */
 #define BSP_UPGRADE_FIRMWARE_BQFS_CMD       "upgradebqfs"
 #define BSP_UPGRADE_FIRMWARE_DFFS_CMD       "upgradedffs"
-/*库仑计的完整的firmware，包含可执行镜像及数据*/
+
 #define BSP_UPGRADE_FIRMWARE_BQFS_NAME      "/system/etc/coulometer/bq27510_pro.bqfs"
-/*库仑计的的数据信息*/
+
 #define BSP_UPGRADE_FIRMWARE_DFFS_NAME      "/system/etc/coulometer/bq27510_pro.dffs"
 #define BSP_ROM_MODE_I2C_ADDR               0x0B
 #define BSP_NORMAL_MODE_I2C_ADDR            0x55
@@ -72,7 +72,7 @@
 #define BSP_NORMAL_MODE                     0x00
 /* zhouhenglin add for Firmware upgrade 20110117 end */
 
-//#define BQ275x0_DEBUG_FLAG	
+//#define BQ275x0_DEBUG_FLAG
 #if defined(BQ275x0_DEBUG_FLAG)
 #define BQ275x0_DBG(format,arg...)     do { printk(KERN_ALERT format, ## arg);  } while (0)
 #define BQ275x0_ERR(format,arg...)	  do { printk(KERN_ERR format, ## arg);  } while (0)
@@ -82,6 +82,10 @@
 #define BQ275x0_ERR(format,arg...)	  do { (void)(format); } while (0)
 #define BQ275x0_FAT(format,arg...)	  do { (void)(format); } while (0)
 #endif
+
+int bq275x0_ext_atoi(const char* s);
+int bq275x0_get_min_volt(void);
+int bq275x0_get_min_capacity(void);
 
 extern void cancel_update_battery_status(void);
 extern void update_battery_status_now(void);
@@ -102,7 +106,6 @@ struct i2c_client* g_battery_measure_by_bq275x0_i2c_client = NULL;
 
 /* zhouhenglin add for Firmware upgrade 20110117 begine */
 static struct i2c_driver bq275x0_battery_driver;
-/*在固件下载器件不允许Bq275x0其他类型的I2C操作*/
 static unsigned int gBq275x0DownloadFirmwareFlag = BSP_NORMAL_MODE;
 /* zhouhenglin add for Firmware upgrade 20110117 end */
 
@@ -125,7 +128,7 @@ static int bq275x0_i2c_read_word(struct bq275x0_device_info *di,u8 reg)
        }
 	mutex_unlock(&bq275x0_battery_mutex);
 
-	msleep(1);	
+	msleep(1);
 
 	return err;
 }
@@ -137,7 +140,7 @@ static int bq275x0_i2c_word_write(struct i2c_client *client, u8 reg, u16 value)
 
 	mutex_lock(&bq275x0_battery_mutex);
     err = i2c_smbus_write_word_data(client, reg, value);
-	if (err < 0) 
+	if (err < 0)
     {
 		BQ275x0_ERR("[%s,%d] i2c_smbus_write_word_data failed\n",__FUNCTION__,__LINE__);
     }
@@ -151,7 +154,7 @@ static int bq275x0_i2c_bytes_write(struct i2c_client *client, u8 reg, u8 *pBuf, 
 	int i2c_ret, i,j;
     u8 *p;
 
-    i2c_ret = 0;    
+    i2c_ret = 0;
     p = pBuf;
 
     mutex_lock(&bq275x0_battery_mutex);
@@ -159,7 +162,7 @@ static int bq275x0_i2c_bytes_write(struct i2c_client *client, u8 reg, u8 *pBuf, 
     {
         j = ((len - i) > I2C_SMBUS_BLOCK_MAX) ? I2C_SMBUS_BLOCK_MAX : (len - i);
         i2c_ret = i2c_smbus_write_i2c_block_data(client, reg+i, j, p+i);
-        if (i2c_ret < 0) 
+        if (i2c_ret < 0)
         {
     		BQ275x0_ERR("[%s,%d] i2c_transfer failed\n",__FUNCTION__,__LINE__);
     	}
@@ -182,7 +185,7 @@ static int bq275x0_i2c_bytes_read(struct i2c_client *client, u8 reg, u8 *pBuf, u
     {
         j = ((len - i) > I2C_SMBUS_BLOCK_MAX) ? I2C_SMBUS_BLOCK_MAX : (len - i);
         i2c_ret = i2c_smbus_read_i2c_block_data(client, reg+i, j, p+i);
-        if (i2c_ret < 0) 
+        if (i2c_ret < 0)
         {
     		BQ275x0_ERR("[%s,%d] i2c_transfer failed\n",__FUNCTION__,__LINE__);
     	}
@@ -190,7 +193,7 @@ static int bq275x0_i2c_bytes_read(struct i2c_client *client, u8 reg, u8 *pBuf, u
     mutex_unlock(&bq275x0_battery_mutex);
 
 	return i2c_ret;
-    
+
 }
 
 
@@ -220,7 +223,7 @@ int bq275x0_battery_temperature(struct bq275x0_device_info *di)
 	int data=0;
 
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_TEMP);
-	data = (data-CONST_NUM_2730);	
+	data = (data-CONST_NUM_2730);
 	BQ275x0_DBG("read temperature result = %d Celsius\n",data);
 	return data;
 }
@@ -249,7 +252,7 @@ int bq275x0_battery_voltage(struct bq275x0_device_info *di)
 	short nCurr=0;
 
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_AI);
-	
+
 	nCurr = (signed short )data;
 	BQ275x0_DBG("read current result = %d mA\n",nCurr);
 	return nCurr;
@@ -280,7 +283,11 @@ int get_full_charge_capacity(struct bq275x0_device_info *di)
 int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 {
 	int data=0;
-//	int data2 = 0;
+	int min_data=0;
+	int vol=0;
+	int data2=0;
+	int curr_now=0;
+	int min_vol=0;
 
 	if(BSP_FIRMWARE_DOWNLOAD_MODE == gBq275x0DownloadFirmwareFlag)
 	{
@@ -293,13 +300,181 @@ int bq275x0_battery_capacity(struct bq275x0_device_info *di)
 #endif
 
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_SOC);
+	vol  = bq275x0_battery_voltage(di);
+
+	min_data = bq275x0_get_min_capacity();
+	min_vol = bq275x0_get_min_volt();
+
+	data2 = (vol - min_vol)*100 / ( 4200 - min_vol);
+	data2 = (data > data2) ? data : data2;
+	data2 = (data2 > min_data) ? min_data : data2;
+
+	curr_now = bq275x0_battery_current(di);
 
 	BQ275x0_DBG("read soc result = %d Hundred Percents\n",data);
 
+	if( data < min_data && vol > min_vol && curr_now < 100 )
+	{
+		return data2;
+	}
+
+	return data;
+
+}
+
+int bq275x0_get_min_capacity()
+{
+    char *buf;
+    struct file *filp;
+    struct inode *inode = NULL;
+    mm_segment_t oldfs;
+    unsigned int length;
+    int ret = 0;
+    int def_ret = -1;
+
+    /* open file */
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+    filp = filp_open( "/system/etc/coulometer/bq27510_min_capacity", O_RDONLY, S_IRUSR);
+    if (IS_ERR(filp))
+    {
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    if (!filp->f_op)
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    inode = filp->f_path.dentry->d_inode;
+    if (!inode)
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* file's size */
+    length = i_size_read(inode->i_mapping->host);
+    if (!( length > 0 && length < BSP_FIRMWARE_FILE_SIZE))
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* allocation buff size */
+    buf = vmalloc(length+(length%2));       /* buf size if even */
+    if (!buf)
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* read data */
+    if (filp->f_op->read(filp, buf, length, &filp->f_pos) != length)
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        vfree(buf);
+        return def_ret;
+    }
+
+    ret = bq275x0_ext_atoi((const char *)buf);
+
+    filp_close(filp, NULL);
+    set_fs(oldfs);
+    vfree(buf);
+
+    return ret;
+}
 
 
-    return data;
+int bq275x0_get_min_volt()
+{
+    char *buf;
+    struct file *filp;
+    struct inode *inode = NULL;
+    mm_segment_t oldfs;
+    unsigned int length;
+    int ret = 0;
+    int def_ret = 3200;
 
+    /* open file */
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+    filp = filp_open( "/system/etc/coulometer/bq27510_min_volt", O_RDONLY, S_IRUSR);
+    if (IS_ERR(filp))
+    {
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    if (!filp->f_op)
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    inode = filp->f_path.dentry->d_inode;
+    if (!inode)
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* file's size */
+    length = i_size_read(inode->i_mapping->host);
+    if (!( length > 0 && length < BSP_FIRMWARE_FILE_SIZE))
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* allocation buff size */
+    buf = vmalloc(length+(length%2));       /* buf size if even */
+    if (!buf)
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        return def_ret;
+    }
+
+    /* read data */
+    if (filp->f_op->read(filp, buf, length, &filp->f_pos) != length)
+    {
+        filp_close(filp, NULL);
+        set_fs(oldfs);
+        vfree(buf);
+        return def_ret;
+    }
+
+    ret = bq275x0_ext_atoi((const char *)buf);
+
+    filp_close(filp, NULL);
+    set_fs(oldfs);
+    vfree(buf);
+
+    return ret;
+}
+
+int bq275x0_ext_atoi(const char *s)
+{
+	int k = 0;
+
+	k = 0;
+	while (*s != '\0' && *s >= '0' && *s <= '9') {
+		k = 10 * k + (*s - '0');
+		s++;
+	}
+	return k;
 }
 
 /*
@@ -329,13 +504,13 @@ int bq275x0_battery_ttf(struct bq275x0_device_info *di)
 }
 
 void show_control_status(struct bq275x0_device_info *di)
-{	
+{
 	int data=0;
 	bq275x0_i2c_word_write(di->client, 0x00, 0x0000);
 	data = bq275x0_i2c_read_word(di, 0);
 	if(data < 0) {
 		BQ275x0_DBG("Coulometer can't be accessed...\n");
-	} 
+	}
 	else {
 		BQ275x0_DBG("Control status = 0x%x \n", data);
 	}
@@ -343,7 +518,7 @@ void show_control_status(struct bq275x0_device_info *di)
 
 /*
  * Return whether the battery charging is full
- * 
+ *
  */
 int is_bq275x0_battery_full(struct bq275x0_device_info *di)
 {
@@ -353,8 +528,8 @@ int is_bq275x0_battery_full(struct bq275x0_device_info *di)
 /*===========================================================================
   Function:       is_bq275x0_battery_exist
   Description:    get the status of battery exist
-  Calls:         
-  Called By:      
+  Calls:
+  Called By:
   Input:          struct bq275x0_device_info *
   Output:         none
   Return:         1->battery present; 0->battery not present.
@@ -370,12 +545,12 @@ int is_bq275x0_battery_exist(struct bq275x0_device_info *di)
 	{
 		return 1;
 	}
-	show_control_status(di);    
+	show_control_status(di);
 	data = bq275x0_i2c_read_word(di,BQ275x0_REG_FLAGS);
 	if(data <0)
-		return 0;	
+		return 0;
 	BQ275x0_DBG("read flags result = 0x%x \n",data);
-	return !!(data & BQ275x0_FLAG_DET);	
+	return !!(data & BQ275x0_FLAG_DET);
 #endif
 	return 1;
 }
@@ -435,7 +610,7 @@ int bq275x0_register_power_supply(struct power_supply ** ppBq275x0_power_supply)
 {
 	int rc = 0;
 	struct bq275x0_device_info *di = NULL;
-	
+
 	if(g_battery_measure_by_bq275x0_i2c_client) {
 		di = i2c_get_clientdata(g_battery_measure_by_bq275x0_i2c_client);
 		rc = power_supply_register(&g_battery_measure_by_bq275x0_i2c_client->dev,&di->bat);
@@ -452,7 +627,7 @@ int bq275x0_register_power_supply(struct power_supply ** ppBq275x0_power_supply)
 }
 
 
-/* zhouhenglin add for Firmware upgrade 20110117 begine */ 
+/* zhouhenglin add for Firmware upgrade 20110117 begine */
 static int bq275x0_atoi(const char *s)
 {
 	int k = 0;
@@ -470,7 +645,7 @@ static unsigned long bq275x0_strtoul(const char *cp, unsigned int base)
 	unsigned long result = 0,value;
 
 	while (isxdigit(*cp) && (value = isdigit(*cp) ? *cp-'0' : (islower(*cp)
-	    ? toupper(*cp) : *cp)-'A'+10) < base) 
+	    ? toupper(*cp) : *cp)-'A'+10) < base)
     {
 		result = result*base + value;
 		cp++;
@@ -484,7 +659,7 @@ static int bq275x0_firmware_program(struct i2c_client *client, const unsigned ch
 {
     unsigned int i = 0, j = 0, ulDelay = 0, ulReadNum = 0;
     unsigned int ulCounter = 0, ulLineLen = 0;
-    unsigned char temp = 0; 
+    unsigned char temp = 0;
     unsigned char *p_cur;
     unsigned char pBuf[BSP_MAX_ASC_PER_LINE] = { 0 };
     unsigned char p_src[BSP_I2C_MAX_TRANSFER_LEN] = { 0 };
@@ -496,8 +671,8 @@ bq275x0_firmware_program_begin:
     {
         return -1;
     }
-    
-    p_cur = (unsigned char *)pgm_data;       
+
+    p_cur = (unsigned char *)pgm_data;
 
     while(1)
     {
@@ -506,12 +681,12 @@ bq275x0_firmware_program_begin:
             printk("Download success\n");
             break;
         }
-            
+
         while (*p_cur == '\r' || *p_cur == '\n')
         {
             p_cur++;
         }
-        
+
         i = 0;
         ulLineLen = 0;
 
@@ -519,14 +694,14 @@ bq275x0_firmware_program_begin:
         memset(p_dst, 0x00, sizeof(p_dst));
         memset(pBuf, 0x00, sizeof(pBuf));
 
-        /*获取一行数据，去除空格*/
+        /*\BB\F1\D0\D0\CA\FD\BE\AC\B3\FD\BF\F1*/
         while(i < BSP_MAX_ASC_PER_LINE)
         {
-            temp = *p_cur++;      
+            temp = *p_cur++;
             i++;
             if(('\r' == temp) || ('\n' == temp))
             {
-                break;  
+                break;
             }
             if(' ' != temp)
             {
@@ -534,7 +709,7 @@ bq275x0_firmware_program_begin:
             }
         }
 
-        
+
         p_src[0] = pBuf[0];
         p_src[1] = pBuf[1];
 
@@ -582,22 +757,22 @@ bq275x0_firmware_program_begin:
                         printk("%x ", p_src[4+i]);
                     }
                     printk(KERN_ERR "\n");
-                    #endif                    
+                    #endif
 
                     if(bq275x0_i2c_bytes_write(client, p_src[3], &p_src[4], ulLineLen-4) < 0)
                     {
-                         printk(KERN_ERR "[%s,%d] bq275x0_i2c_bytes_write failed len=%d\n",__FUNCTION__,__LINE__,ulLineLen-4);                        
+                         printk(KERN_ERR "[%s,%d] bq275x0_i2c_bytes_write failed len=%d\n",__FUNCTION__,__LINE__,ulLineLen-4);
                     }
 
                     break;
-                
+
                 case 'R' :
                     if(bq275x0_i2c_bytes_read(client, p_src[3], p_dst, ulReadNum) < 0)
                     {
                         printk(KERN_ERR "[%s,%d] bq275x0_i2c_bytes_read failed\n",__FUNCTION__,__LINE__);
                     }
                     break;
-                    
+
                 case 'C' :
                     if(bq275x0_i2c_bytes_read_and_compare(client, p_src[3], p_dst, &p_src[4], ulLineLen-4))
                     {
@@ -606,26 +781,26 @@ bq275x0_firmware_program_begin:
                         goto bq275x0_firmware_program_begin;
                     }
                     break;
-                    
-                case 'X' :                    
+
+                case 'X' :
                     mdelay(ulDelay);
                     break;
-                  
+
                 default:
                     return 0;
             }
         }
-      
+
     }
 
     return 0;
-    
+
 }
 
 static int bq275x0_firmware_download(struct i2c_client *client, const unsigned char *pgm_data, unsigned int len)
 {
     int iRet;
-  
+
     /*Enter Rom Mode */
     iRet = bq275x0_i2c_word_write(client, BSP_ENTER_ROM_MODE_CMD, BSP_ENTER_ROM_MODE_DATA);
     if(0 != iRet)
@@ -648,10 +823,10 @@ static int bq275x0_firmware_download(struct i2c_client *client, const unsigned c
     g_battery_measure_by_bq275x0_i2c_client->addr = BSP_NORMAL_MODE_I2C_ADDR;
 
     return iRet;
-    
+
 }
 
-static int bq275x0_update_firmware(struct i2c_client *client, const char *pFilePath) 
+static int bq275x0_update_firmware(struct i2c_client *client, const char *pFilePath)
 {
     char *buf;
     struct file *filp;
@@ -664,25 +839,25 @@ static int bq275x0_update_firmware(struct i2c_client *client, const char *pFileP
     oldfs = get_fs();
     set_fs(KERNEL_DS);
     filp = filp_open(pFilePath, O_RDONLY, S_IRUSR);
-    if (IS_ERR(filp)) 
+    if (IS_ERR(filp))
     {
         printk(KERN_ERR "[%s,%d] filp_open failed\n",__FUNCTION__,__LINE__);
         set_fs(oldfs);
         return -1;
     }
 
-    if (!filp->f_op) 
+    if (!filp->f_op)
     {
-        printk(KERN_ERR "[%s,%d] File Operation Method Error\n",__FUNCTION__,__LINE__);        
+        printk(KERN_ERR "[%s,%d] File Operation Method Error\n",__FUNCTION__,__LINE__);
         filp_close(filp, NULL);
         set_fs(oldfs);
         return -1;
     }
 
     inode = filp->f_path.dentry->d_inode;
-    if (!inode) 
+    if (!inode)
     {
-        printk(KERN_ERR "[%s,%d] Get inode from filp failed\n",__FUNCTION__,__LINE__);          
+        printk(KERN_ERR "[%s,%d] Get inode from filp failed\n",__FUNCTION__,__LINE__);
         filp_close(filp, NULL);
         set_fs(oldfs);
         return -1;
@@ -701,7 +876,7 @@ static int bq275x0_update_firmware(struct i2c_client *client, const char *pFileP
 
     /* allocation buff size */
     buf = vmalloc(length+(length%2));       /* buf size if even */
-    if (!buf) 
+    if (!buf)
     {
         printk(KERN_ERR "[%s,%d] Alloctation memory failed\n",__FUNCTION__,__LINE__);
         filp_close(filp, NULL);
@@ -710,7 +885,7 @@ static int bq275x0_update_firmware(struct i2c_client *client, const char *pFileP
     }
 
     /* read data */
-    if (filp->f_op->read(filp, buf, length, &filp->f_pos) != length) 
+    if (filp->f_op->read(filp, buf, length, &filp->f_pos) != length)
     {
         printk(KERN_ERR "[%s,%d] File read error\n",__FUNCTION__,__LINE__);
         filp_close(filp, NULL);
@@ -728,7 +903,7 @@ static int bq275x0_update_firmware(struct i2c_client *client, const char *pFileP
     filp_close(filp, NULL);
     set_fs(oldfs);
     vfree(buf);
-    
+
     return ret;
 }
 
@@ -755,7 +930,7 @@ static u8 get_child_version(void)
     mdelay(2);
 
     bq275x0_i2c_bytes_read(g_battery_measure_by_bq275x0_i2c_client, 0x40, data, 32);
-	
+
     return data[0];
 }
 
@@ -767,26 +942,26 @@ static ssize_t bq275x0_attr_store(struct device_driver *driver,const char *buf, 
     if(NULL == buf || count >255 || count == 0 || strnchr(buf, count, 0x20))
         return -1;
     //if(get_child_version() == COULOMETER_VERSION) {
-    //    printk(KERN_INFO "coulometer firmware is newest!\n");    
-    //    return iRet;	
+    //    printk(KERN_INFO "coulometer firmware is newest!\n");
+    //    return iRet;
     //}
     memcpy (path_image, buf,  count);
-    /* replace '\n' with  '\0'  */ 
+    /* replace '\n' with  '\0'  */
     if((path_image[count-1]) == '\n')
-        path_image[count-1] = '\0'; 
+        path_image[count-1] = '\0';
     else
-        path_image[count] = '\0';    	
+        path_image[count] = '\0';
 
-    cancel_update_battery_status();	
-    set_max8903_cen(0);	
+    cancel_update_battery_status();
+    set_max8903_cen(0);
 
     /*enter firmware bqfs download*/
     gBq275x0DownloadFirmwareFlag = BSP_FIRMWARE_DOWNLOAD_MODE;
-    iRet = bq275x0_update_firmware(g_battery_measure_by_bq275x0_i2c_client, path_image);        
-//    gBq275x0DownloadFirmwareFlag = BSP_NORMAL_MODE;	
+    iRet = bq275x0_update_firmware(g_battery_measure_by_bq275x0_i2c_client, path_image);
+//    gBq275x0DownloadFirmwareFlag = BSP_NORMAL_MODE;
     msleep(3000);
-    set_max8903_cen(1);	
-    pr_err("Update firemware finish, then update battery status...");		
+    set_max8903_cen(1);
+    pr_err("Update firemware finish, then update battery status...");
     gBq275x0DownloadFirmwareFlag = BSP_NORMAL_MODE;
     update_battery_status_now();
 
@@ -798,13 +973,13 @@ static ssize_t bq275x0_attr_show(struct device_driver *driver, char *buf)
 {
     int iRet = 0;
     u8 ver;
-	
+
     if(NULL == buf)
     {
         return -1;
     }
 
-#if 0    
+#if 0
     mutex_lock(&bq275x0_battery_mutex);
 	i2c_smbus_write_word_data(g_battery_measure_by_bq275x0_i2c_client,0x00,0x0008);
     mdelay(2);
@@ -819,16 +994,16 @@ static ssize_t bq275x0_attr_show(struct device_driver *driver, char *buf)
         return sprintf(buf, "%s", "Coulometer Damaged or Firmware Error");
     }
     else
-    {    
-    
+    {
+
         return sprintf(buf, "%x", ver);
     }
 
 }
 
 static DRIVER_ATTR(state, 0664, bq275x0_attr_show, bq275x0_attr_store);
- 
-/* zhouhenglin add for Firmware upgrade 20110117 end */ 
+
+/* zhouhenglin add for Firmware upgrade 20110117 end */
 
 
 static int bq275x0_battery_probe(struct i2c_client *client,
@@ -844,8 +1019,8 @@ static int bq275x0_battery_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-#if 0   
-/* zhouhenglin add for Firmware upgrade 20110117 begine */ 
+#if 0
+/* zhouhenglin add for Firmware upgrade 20110117 begine */
 	i2c_smbus_write_word_data(client,0x00,0x0008);
     mdelay(2);
 	retval = i2c_smbus_read_word_data(client,0x00);
@@ -868,9 +1043,9 @@ static int bq275x0_battery_probe(struct i2c_client *client,
         printk("failed to create sysfs entry(state): %d\n", retval);
         return -1;
     }
-/* zhouhenglin add for Firmware upgrade 20110117 end */ 
+/* zhouhenglin add for Firmware upgrade 20110117 end */
 
-	//power_set_batt_measurement_type(BATT_MEASURE_BY_BQ275x0);		
+	//power_set_batt_measurement_type(BATT_MEASURE_BY_BQ275x0);
 
 	/* Get new ID for the new battery device */
 	retval = idr_pre_get(&bq275x0_battery_id, GFP_KERNEL);
@@ -982,3 +1157,4 @@ module_exit(bq275x0_battery_exit);
 MODULE_AUTHOR("Rodolfo Giometti <giometti@linux.it>");
 MODULE_DESCRIPTION("BQ275x0 battery monitor driver");
 MODULE_LICENSE("GPL");
+
