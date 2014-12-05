@@ -97,7 +97,12 @@ int mdp4_atv_on(struct platform_device *pdev)
 	pipe->src_w = fbi->var.xres;
 	pipe->src_y = 0;
 	pipe->src_x = 0;
-	if (mfd->map_buffer) {
+        pipe->dst_h = fbi->var.yres;
+        pipe->dst_w = fbi->var.xres;
+        pipe->dst_y = 0;
+        pipe->dst_x = 0;
+
+        if (mfd->map_buffer) {
 		pipe->srcp0_addr = (unsigned int)mfd->map_buffer->iova[0] + \
 			buf_offset;
 		pr_debug("start 0x%lx srcp0_addr 0x%x\n", mfd->
