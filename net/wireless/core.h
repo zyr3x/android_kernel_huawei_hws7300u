@@ -54,8 +54,6 @@ struct cfg80211_registered_device {
 	int opencount; /* also protected by devlist_mtx */
 	wait_queue_head_t dev_wait;
 
-	u32 ap_beacons_nlpid;
-
 	/* BSSes/scanning */
 	spinlock_t bss_lock;
 	struct list_head bss_list;
@@ -410,6 +408,7 @@ void cfg80211_sme_failed_assoc(struct wireless_dev *wdev);
 bool cfg80211_sme_failed_reassoc(struct wireless_dev *wdev);
 
 /* internal helpers */
+bool cfg80211_supported_cipher_suite(struct wiphy *wiphy, u32 cipher);
 int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
 				   struct key_params *params, int key_idx,
 				   bool pairwise, const u8 *mac_addr);
