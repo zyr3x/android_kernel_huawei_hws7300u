@@ -2756,6 +2756,9 @@ static int mdp4_calc_req_mdp_clk(struct msm_fb_data_type *mfd,
 	u32 shift = 16;
 	u64 rst;
 
+        if (mfd->index == 1)
+                return mdp_max_clk;
+
 	pr_debug("%s: pipe sets: panel res(x,y)=(%d,%d)\n",
 		 __func__,  mfd->panel_info.xres, mfd->panel_info.yres);
 
