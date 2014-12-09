@@ -20,7 +20,7 @@
 * software in any way with any other Broadcom software provided under a license
 * other than the GPL, without Broadcom's express prior written consent.
 *
-* $Id: dhd_custom_gpio.c 339054 2012-06-15 04:56:55Z $
+* $Id: dhd_custom_gpio.c,v 1.2.42.1 2010-10-19 00:41:09 Exp $
 */
 
 #include <typedefs.h>
@@ -38,11 +38,8 @@
 #define WL_TRACE(x)
 
 #ifdef CUSTOMER_HW
-#define CUSTOMER_OOB
-extern int brcm_wlan_oob(void);
 extern  void bcm_wlan_power_off(int);
 extern  void bcm_wlan_power_on(int);
-extern int msm8x60_wlan_set_carddetect(int val);
 #endif /* CUSTOMER_HW */
 #if defined(CUSTOMER_HW2)
 #ifdef CONFIG_WIFI_CONTROL_FUNC
@@ -92,9 +89,7 @@ int dhd_customer_oob_irq_map(unsigned long *irq_flags_ptr)
 #ifdef CUSTOMER_HW2
 	host_oob_irq = wifi_get_irq_number(irq_flags_ptr);
 
-#elif defined(CUSTOMER_OOB)
-        host_oob_irq = brcm_wlan_oob();
-#else /* for NOT  CUSTOMER_HW2 */
+#else
 #if defined(CUSTOM_OOB_GPIO_NUM)
 	if (dhd_oob_gpio_num < 0) {
 		dhd_oob_gpio_num = CUSTOM_OOB_GPIO_NUM;
@@ -102,13 +97,13 @@ int dhd_customer_oob_irq_map(unsigned long *irq_flags_ptr)
 #endif /* CUSTOMER_HW2 */
 
 	if (dhd_oob_gpio_num < 0) {
-		WL_ERROR(("%s: ERROR customer specific Host GPIO is NOT defined\n",
+		WL_ERROR(("%s: ERROR customer specific Host GPIO is NOT defined \n",
 			__FUNCTION__));
 		return (dhd_oob_gpio_num);
 	}
 
 	WL_ERROR(("%s: customer specific Host GPIO number is (%d)\n",
-		__FUNCTION__, dhd_oob_gpio_num));
+	         __FUNCTION__, dhd_oob_gpio_num));
 
 #if defined CUSTOMER_HW
 	host_oob_irq = MSM_GPIO_TO_INT(dhd_oob_gpio_num);
