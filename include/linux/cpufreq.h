@@ -333,7 +333,7 @@ static inline unsigned int cpufreq_quick_get(unsigned int cpu)
 }
 #endif
 
-#define MAX_FREQ_LIMIT		1188000
+#define MAX_FREQ_LIMIT		1350000
 
 /*********************************************************************
  *                       CPUFREQ DEFAULT GOVERNOR                    *
@@ -373,6 +373,9 @@ extern struct cpufreq_governor cpufreq_gov_smartass2;
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_LAZY)
 extern struct cpufreq_governor cpufreq_gov_lazy;
 #define CPUFREQ_DEFAULT_GOVERNOR  (&cpufreq_gov_lazy)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTELLIACTIVE)
+extern struct cpufreq_governor cpufreq_gov_intelliactive;
+#define CPUFREQ_DEFAULT_GOVERNOR (&cpufreq_gov_intelliactive)
 #endif
 
 

@@ -37,12 +37,12 @@ static int charger_get_property_s7pro(struct power_supply *psy,
 				  enum power_supply_property psp,
 				  union power_supply_propval *val)
 {
-	struct msm_hardware_charger *pchg = 
+	struct msm_hardware_charger *pchg =
 		container_of(psy, struct msm_hardware_charger, charger);
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
-		val->intval = pchg->get_charger_status(pchg->gpio_num);	
+		val->intval = pchg->get_charger_status(pchg->gpio_num);
 		break;
 	default:
 		return -EINVAL;
@@ -77,7 +77,7 @@ static int request_irqs(struct msm_hardware_charger *pchg)
 	if (irq < 0) {
 		pr_err("%s:couldnt find irq resource. \n", __func__);
 		return -EINVAL;
-	} else {		
+	} else {
 		ret = request_threaded_irq(irq, NULL,
 				  pm8058_chg_handler,
 				  IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
@@ -85,7 +85,7 @@ static int request_irqs(struct msm_hardware_charger *pchg)
 		if (ret < 0) {
 			pr_err("%s:couldnt request %d %d\n", __func__, irq, ret);
 		} else {
-			pchg->irq = irq;			
+			pchg->irq = irq;
 			disable_irq_nosync(irq);
 		}
 	}
@@ -106,7 +106,7 @@ static void  pm8058_chg_determine_initial_state(struct msm_hardware_charger *pch
 //#ifdef CONFIG_HAS_EARLYSUSPEND
 //static void s7pro_charger_early_suspend(struct early_suspend *h)
 //{
-//	struct msm_hardware_charger *pchg = 
+//	struct msm_hardware_charger *pchg =
 //		container_of(h, struct msm_hardware_charger, early_suspend);
 //
 //	if(pchg->rating == 2)
@@ -115,7 +115,7 @@ static void  pm8058_chg_determine_initial_state(struct msm_hardware_charger *pch
 //
 //static void s7pro_charger_late_resume(struct early_suspend *h)
 //{
-//	struct msm_hardware_charger *pchg = 
+//	struct msm_hardware_charger *pchg =
 //		container_of(h, struct msm_hardware_charger, early_suspend);
 //
 //	if(pchg->rating == 2)
@@ -126,7 +126,7 @@ static void  pm8058_chg_determine_initial_state(struct msm_hardware_charger *pch
 
 static int __devinit pm8058_charger_probe(struct platform_device *pdev)
 {
-	int ret;	
+	int ret;
 	struct pm8058_charger_platform_data *pdata;
 	struct msm_hardware_charger *pchg;
 
@@ -197,13 +197,13 @@ static int __devinit pm8058_charger_probe(struct platform_device *pdev)
 	pm8058_chg_determine_initial_state(pchg);
 
 	return 0;
-	
+
 register_fail:
 	free_irqs(pchg);
 error_type:
 	kfree(pchg);
 	return -EFAULT;
- 
+
 }
 
 static int __devexit pm8058_charger_remove(struct platform_device *pdev)
@@ -211,7 +211,7 @@ static int __devexit pm8058_charger_remove(struct platform_device *pdev)
 	struct msm_hardware_charger *pchg = dev_get_drvdata(&pdev->dev);
 //		container_of(&pdev, struct msm_hardware_charger, pdev);
 
-	pchg->chg_detection_config(0, pchg->gpio_num);	
+	pchg->chg_detection_config(0, pchg->gpio_num);
 	msm_charger_notify_event(pchg, CHG_REMOVED_EVENT);
 	msm_charger_unregister(pchg);
 //
@@ -227,7 +227,7 @@ static int __devexit pm8058_charger_remove(struct platform_device *pdev)
 
 const struct platform_device_id charger_table[] = {
 	{ "wall-charger-s7pro",	 0 },
-	{ "usb-charger-s7pro",	 0 },		
+	{ "usb-charger-s7pro",	 0 },
 };
 
 
@@ -283,3 +283,4 @@ MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("PMIC8058 BATTERY driver");
 MODULE_VERSION("1.0");
 MODULE_ALIAS("platform:pm8058_charger");
+

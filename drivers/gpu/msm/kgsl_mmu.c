@@ -603,13 +603,16 @@ void kgsl_setstate(struct kgsl_mmu *mmu, unsigned int context_id,
 			uint32_t flags)
 {
 	struct kgsl_device *device = mmu->device;
-	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
-	if (!(flags & (KGSL_MMUFLAGS_TLBFLUSH | KGSL_MMUFLAGS_PTUPDATE))
-		&& !adreno_is_a2xx(adreno_dev))
-		return;
+	if (!(flags & (KGSL_MMUFLAGS_TLBFLUSH | KGSL_MMUFLAGS_PTUPDATE))) {
+        if (device->id == KGSL_DEVICE_3D0) {
+            struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
-	if (KGSL_MMU_TYPE_NONE == kgsl_mmu_type)
+            if (!adreno_is_a2xx(adreno_dev))
+            return;
+            }
+        }
+        if (KGSL_MMU_TYPE_NONE == kgsl_mmu_type)
 		return;
 	else if (device->ftbl->setstate)
 		device->ftbl->setstate(device, context_id, flags);
@@ -873,6 +876,8 @@ kgsl_mmu_unmap(struct kgsl_pagetable *pagetable,
 	spin_unlock(&pagetable->lock);
 	if (!kgsl_memdesc_is_global(memdesc))
 		memdesc->priv &= ~KGSL_MEMDESC_MAPPED;
+        else
+        kgsl_mmu_put_gpuaddr(pagetable, memdesc);
 	return 0;
 }
 EXPORT_SYMBOL(kgsl_mmu_unmap);

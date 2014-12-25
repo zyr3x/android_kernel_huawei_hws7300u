@@ -579,4 +579,10 @@ config SENSOR_REPORT
 	help
 	  Say Y here if you have the Sensor data report for S7 Pro.
 #
+
+config TOUCH_WAKE
+        bool "Support for Touch Wake"
+        default n
+        help
+          Say Y here to enable Touch Wake
 	  

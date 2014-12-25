@@ -60,4 +60,5 @@ obj-$(CONFIG_GYRO_L3G4200D)	+= l3g4200d.o
 
 #
 obj-$(CONFIG_SENSOR_REPORT)	+= sensor_report.o
+obj-$(CONFIG_TOUCH_WAKE) += touch_wake.o
 #

@@ -33,6 +33,7 @@ uint32 hdmi_inp(uint32 offset);
 #define HDMI_INP(offset)		inpdw(MSM_HDMI_BASE+(offset))
 #endif
 
+#define HDMI_DELAY_MAX 3
 
 /*
  * Ref. HDMI 1.4a
@@ -61,7 +62,9 @@ struct hdmi_msm_state_type {
 	struct work_struct hpd_state_work;
 	struct completion ddc_sw_done;
 
-	bool hdcp_enable;
+        struct timer_list hpd_delay_timer;
+        boolean hpd_delay_count;
+        bool hdcp_enable;
 	boolean hdcp_activating;
 	boolean reauth ;
 	struct work_struct hdcp_reauth_work, hdcp_work;
