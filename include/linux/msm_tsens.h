@@ -40,4 +40,3 @@ int32_t tsens_get_temp(struct tsens_device *dev, unsigned long *temp);
 int msm_tsens_early_init(struct tsens_platform_data *pdata);
 
 #endif /*MSM_TSENS_H */
-
