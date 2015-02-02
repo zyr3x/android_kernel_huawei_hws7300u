@@ -17,12 +17,7 @@
 
 #include <linux/spinlock.h>
 #include <linux/mutex.h>
-<<<<<<< HEAD:drivers/staging/zram/zram_drv.h
-
-#include "xvmalloc.h"
-=======
 #include <linux/zsmalloc.h>
->>>>>>> 77bff06... Import zram & zsmalloc from kernel 3.14:drivers/block/zram/zram_drv.h
 
 /*
  * Some arbitrary value. This is just to catch
@@ -36,17 +31,12 @@ static const unsigned max_num_devices = 32;
  * Pages that compress to size greater than this are stored
  * uncompressed in memory.
  */
-static const unsigned max_zpage_size = PAGE_SIZE / 4 * 3;
+static const size_t max_zpage_size = PAGE_SIZE / 10 * 9;
 
 /*
  * NOTE: max_zpage_size must be less than or equal to:
-<<<<<<< HEAD:drivers/staging/zram/zram_drv.h
- *   XV_MAX_ALLOC_SIZE - sizeof(struct zobj_header)
- * otherwise, xv_malloc() would always return failure.
-=======
  *   ZS_MAX_ALLOC_SIZE. Otherwise, zs_malloc() would
  * always return failure.
->>>>>>> 77bff06... Import zram & zsmalloc from kernel 3.14:drivers/block/zram/zram_drv.h
  */
 
 /*-- End of configurable params */
@@ -55,7 +45,10 @@ static const unsigned max_zpage_size = PAGE_SIZE / 4 * 3;
 #define SECTOR_SIZE		(1 << SECTOR_SHIFT)
 #define SECTORS_PER_PAGE_SHIFT	(PAGE_SHIFT - SECTOR_SHIFT)
 #define SECTORS_PER_PAGE	(1 << SECTORS_PER_PAGE_SHIFT)
-#define ZRAM_LOGICAL_BLOCK_SIZE	4096
+#define ZRAM_LOGICAL_BLOCK_SHIFT 12
+#define ZRAM_LOGICAL_BLOCK_SIZE	(1 << ZRAM_LOGICAL_BLOCK_SHIFT)
+#define ZRAM_SECTOR_PER_LOGICAL_BLOCK	\
+	(1 << (ZRAM_LOGICAL_BLOCK_SHIFT - SECTOR_SHIFT))
 
 /* Flags for zram pages (table[page_no].flags) */
 enum zram_pageflags {
@@ -69,13 +62,8 @@ enum zram_pageflags {
 
 /* Allocated for each disk page */
 struct table {
-<<<<<<< HEAD:drivers/staging/zram/zram_drv.h
-	struct page *page;
-	u16 offset;
-=======
 	unsigned long handle;
 	u16 size;	/* object size (excluding header) */
->>>>>>> 77bff06... Import zram & zsmalloc from kernel 3.14:drivers/block/zram/zram_drv.h
 	u8 count;	/* object ref count (not yet used) */
 	u8 flags;
 } __aligned(4);
@@ -94,16 +82,6 @@ struct zram_stats {
 	atomic_t bad_compress;	/* % of pages with compression ratio>=75% */
 };
 
-<<<<<<< HEAD:drivers/staging/zram/zram_drv.h
-struct zram {
-	struct xv_pool *mem_pool;
-	void *compress_workmem;
-	void *compress_buffer;
-	struct table *table;
-	spinlock_t stat64_lock;	/* protect 64-bit stats */
-	struct mutex lock;	/* protect compression buffers against
-				 * concurrent writes */
-=======
 struct zram_meta {
 	rwlock_t tb_lock;	/* protect table */
 	void *compress_workmem;
@@ -115,12 +93,11 @@ struct zram_meta {
 
 struct zram {
 	struct zram_meta *meta;
->>>>>>> 77bff06... Import zram & zsmalloc from kernel 3.14:drivers/block/zram/zram_drv.h
 	struct request_queue *queue;
 	struct gendisk *disk;
 	int init_done;
-	/* Prevent concurrent execution of device init and reset */
-	struct mutex init_lock;
+	/* Prevent concurrent execution of device init, reset and R/W request */
+	struct rw_semaphore init_lock;
 	/*
 	 * This is the limit on amount of *uncompressed* worth of data
 	 * we can store in a disk.
@@ -129,17 +106,4 @@ struct zram {
 
 	struct zram_stats stats;
 };
-<<<<<<< HEAD:drivers/staging/zram/zram_drv.h
-
-extern struct zram *devices;
-extern unsigned int num_devices;
-#ifdef CONFIG_SYSFS
-extern struct attribute_group zram_disk_attr_group;
-#endif
-
-extern int zram_init_device(struct zram *zram);
-extern void zram_reset_device(struct zram *zram);
-
-=======
->>>>>>> 77bff06... Import zram & zsmalloc from kernel 3.14:drivers/block/zram/zram_drv.h
 #endif
