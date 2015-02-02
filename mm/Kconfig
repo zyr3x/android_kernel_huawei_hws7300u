@@ -370,3 +370,7 @@ config CLEANCACHE
 	  in a negligible performance hit.
 
 	  If unsure, say Y to enable cleancache
+
+config ZSMALLOC
+	bool "Enable zsmalloc driver to zram"
+	default y
