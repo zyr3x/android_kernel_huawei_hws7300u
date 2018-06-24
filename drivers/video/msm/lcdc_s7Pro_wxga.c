@@ -65,6 +65,7 @@ static int chimei_bl_level = 127;
 
 
 static int colorEn_state;
+static int voltage_state = 3000000;
 
 #define LCDC_NUM_GPIO 28
 #define LCDC_GPIO_START 0
@@ -116,7 +117,8 @@ static void display_panel_power(int on)
           if (!display_reg)
             return;
           rc = regulator_set_voltage(display_reg,
-          	3300000, 3300000);
+          	voltage_state, voltage_state);
+          	pr_err("set custom voltage %d",voltage_state);
           if (rc)
           	goto out_display_reg;
           rc = regulator_enable(display_reg);
@@ -461,7 +463,6 @@ static int lcdc_chimei_panel_on(struct platform_device *pdev)
 
 static int lcdc_chimei_panel_off(struct platform_device *pdev)
 {
-    unsigned int my_bl_level = 0; 
       printk(KERN_INFO "lcdc_chimei_panel_off---------------begin");
 	/* pull low to disable */
     
@@ -483,15 +484,7 @@ static int lcdc_chimei_panel_off(struct platform_device *pdev)
 
 	msleep(10);
 
-    if (my_hpd_state) {
-        my_bl_level = chimei_bl_level;
-    }
-
     lcdc_chimei_set_backlight(0);
-
-    if (my_hpd_state) {
-        chimei_bl_level = my_bl_level;
-    }
 
       msleep(10);
 	#if S7_HWID_L3H(S7, S7301, B)	
@@ -719,8 +712,37 @@ static ssize_t lcdc_colorEn_store(struct device_driver *drv, const char *buf, si
 	return count;
 }
 
+static ssize_t lcdc_voltage_show(struct device_driver *drv, char *buf)
+{
+	return sprintf(buf, "Voltage = %d\n",voltage_state);
+}
+
+static ssize_t lcdc_voltage_store(struct device_driver *drv, const char *buf, size_t count)
+{
+	int value = 0;
+    if (buf == NULL) {
+		return count;
+    }
+	value = simple_strtoul(buf, NULL, 0);
+    
+
+	if ((value < 0) || (value >  3300000)) 
+	{
+		printk(KERN_ERR "[%s %d] Must be 0 - 3300000\n", __func__, __LINE__);
+    }
+	else
+	{
+        if(value == 0) {
+            lcdc_chimei_panel_off(cm_fbpdev);         
+        }
+		voltage_state = value;
+    }    
+	return count;
+}
+
 
 static DRIVER_ATTR(color_en, 0644, lcdc_colorEn_show, lcdc_colorEn_store);
+static DRIVER_ATTR(voltage, 0644, lcdc_voltage_show, lcdc_voltage_store);
 
 static int __init lcdc_chimei_lvds_panel_init(void)
 {
@@ -756,10 +778,10 @@ static int __init lcdc_chimei_lvds_panel_init(void)
 	 */
     pinfo->lcdc.h_back_porch  = 96;
     pinfo->lcdc.h_front_porch = 0;
-    pinfo->lcdc.h_pulse_width = 64;
+    pinfo->lcdc.h_pulse_width = 88;
     pinfo->lcdc.v_back_porch  = 7;
     pinfo->lcdc.v_front_porch = 0;
-    pinfo->lcdc.v_pulse_width = 16;
+    pinfo->lcdc.v_pulse_width = 22;
     pinfo->lcdc.border_clr = 0;
 	pinfo->lcdc.underflow_clr = 0x00;//0xff;
 	pinfo->lcdc.hsync_skew = 0;
@@ -782,7 +804,11 @@ static int __init lcdc_chimei_lvds_panel_init(void)
     }
 	if(driver_create_file(&(this_driver.driver), &driver_attr_color_en) < 0) 
 	{
-       pr_err("failed to create sysfs entry(state): \n");
+       		pr_err("failed to create sysfs entry(state): \n");
+	}
+	if(driver_create_file(&(this_driver.driver), &driver_attr_voltage) < 0) 
+	{
+       		pr_err("failed to create sysfs entry(state): \n");
 	}
 	return ret;
 }
